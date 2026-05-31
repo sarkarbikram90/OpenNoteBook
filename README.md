@@ -7,20 +7,20 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/your-org/opennotebook/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/your-org/opennotebook/ci.yml?branch=main&label=CI&style=flat-square" alt="CI Status">
+  <a href="https://github.com/sarkarbikram90/OpenNoteBook/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/sarkarbikram90/OpenNoteBook/ci.yml?branch=main&label=CI&style=flat-square" alt="CI Status">
   </a>
-  <a href="https://github.com/your-org/opennotebook/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/your-org/opennotebook?style=flat-square" alt="License">
+  <a href="https://github.com/sarkarbikram90/OpenNoteBook/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/sarkarbikram90/OpenNoteBook?style=flat-square" alt="License">
   </a>
-  <a href="https://github.com/your-org/opennotebook/stargazers">
-    <img src="https://img.shields.io/github/stars/your-org/opennotebook?style=flat-square" alt="Stars">
+  <a href="https://github.com/sarkarbikram90/OpenNoteBook/stargazers">
+    <img src="https://img.shields.io/github/stars/sarkarbikram90/OpenNoteBook?style=flat-square" alt="Stars">
   </a>
-  <a href="https://github.com/your-org/opennotebook/issues">
-    <img src="https://img.shields.io/github/issues/your-org/opennotebook?style=flat-square" alt="Issues">
+  <a href="https://github.com/sarkarbikram90/OpenNoteBook/issues">
+    <img src="https://img.shields.io/github/issues/sarkarbikram90/OpenNoteBook?style=flat-square" alt="Issues">
   </a>
-  <a href="https://github.com/your-org/opennotebook/pulls">
-    <img src="https://img.shields.io/github/issues-pr/your-org/opennotebook?style=flat-square" alt="PRs">
+  <a href="https://github.com/sarkarbikram90/OpenNoteBook/pulls">
+    <img src="https://img.shields.io/github/issues-pr/sarkarbikram90/OpenNoteBook?style=flat-square" alt="PRs">
   </a>
 </p>
 

@@ -283,3 +283,30 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog id={self.id} action={self.action} resource={self.resource_type}>"
+
+
+# ── Failed Jobs (DLQ) ───────────────────────────────────────────────────────
+
+
+class FailedJob(Base):
+    """Dead letter queue entry for permanently failed background tasks."""
+
+    __tablename__ = "failed_jobs"
+
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    task_name: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str] = mapped_column(Text, nullable=False)
+    traceback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retried: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+
+    # Relationships
+    source: Mapped[Source] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<FailedJob id={self.id} source_id={self.source_id} task={self.task_name}>"
+

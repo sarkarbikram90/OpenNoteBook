@@ -61,6 +61,26 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     max_files_per_request: int = 10
 
+    # ── MinIO (Object Storage) ───────────────────
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "opennotebook"
+    minio_secure: bool = False
+
+    # ── Qdrant (Vector Store) ────────────────────
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "opennotebook_chunks"
+
+    # ── Celery (Task Queue) ──────────────────────
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+
+    # ── Embedding Model ──────────────────────────
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_batch_size: int = 64
+    embedding_dimension: int = 384
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
