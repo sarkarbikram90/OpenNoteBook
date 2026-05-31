@@ -25,7 +25,7 @@ app/worker/tasks/ → Celery tasks
 
 ## Build status (update this as phases complete)
 - [x] Phase 1: Scaffold + Docker Compose
-- [ ] Phase 2: DB schema + migrations
+- [x] Phase 2: DB schema + migrations
 - [ ] Phase 3: Source processing pipeline
 - [ ] Phase 4: RAG pipeline + streaming
 - [ ] Phase 5: Frontend
