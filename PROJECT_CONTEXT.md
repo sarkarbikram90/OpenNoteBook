@@ -27,6 +27,6 @@ app/worker/tasks/ → Celery tasks
 - [x] Phase 1: Scaffold + Docker Compose
 - [x] Phase 2: DB schema + migrations
 - [x] Phase 3: Source processing pipeline
-- [ ] Phase 4: RAG pipeline + streaming
+- [x] Phase 4: RAG pipeline + streaming
 - [ ] Phase 5: Frontend
 - [ ] Phase 6: Observability + CI/CD

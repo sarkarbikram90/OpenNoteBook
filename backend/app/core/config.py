@@ -81,6 +81,20 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 64
     embedding_dimension: int = 384
 
+    # ── Ollama (LLM Inference) ───────────────────
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3:8b-instruct"
+    ollama_temperature: float = 0.1
+
+    # ── Reranker ─────────────────────────────────
+    reranker_model: str = "BAAI/bge-reranker-base"
+
+    # ── Retrieval ────────────────────────────────
+    retrieval_top_k: int = 20
+    rerank_top_k: int = 10
+    rrf_k: int = 60
+    max_history_messages: int = 10
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

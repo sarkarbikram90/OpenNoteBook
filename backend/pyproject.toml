@@ -73,6 +73,9 @@ dependencies = [
 
     # ── Utilities ────────────────────────────
     "python-multipart>=0.0.9",
+
+    # ── PDF Export ───────────────────────────────
+    "fpdf2>=2.7,<3.0",
 ]
 
 [project.optional-dependencies]

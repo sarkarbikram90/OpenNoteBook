@@ -1,0 +1,1 @@
+"""OpenNotebook — Chat domain package."""
