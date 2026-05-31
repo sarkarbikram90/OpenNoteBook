@@ -36,9 +36,17 @@ test: ## Run backend + frontend tests
 test-backend: ## Run backend tests only
 	$(COMPOSE) exec api pytest --cov=app --cov-report=term-missing -v
 
+.PHONY: test-unit
+test-unit: ## Run backend unit tests only
+	python -m pytest backend/tests/integration/test_rag_pipeline.py -o addopts="" -v
+
+.PHONY: test-integration
+test-integration: ## Run backend integration tests only
+	python -m pytest backend/tests/integration/test_api_integration.py -o addopts="" -v
+
 .PHONY: test-frontend
 test-frontend: ## Run frontend tests only
-	$(COMPOSE) exec frontend npm test -- --run
+	cd frontend && npm test
 
 # ── Linting ──────────────────────────────────
 

@@ -37,11 +37,14 @@ def setup_logging() -> None:
 
     if settings.log_format.lower() == "json":
         # Structured JSON Logging
-        from pythonjsonlogger import jsonlogger
+        try:
+            from pythonjsonlogger.json import JsonFormatter
+        except ImportError:
+            from pythonjsonlogger.jsonlogger import JsonFormatter
 
         handler = logging.StreamHandler(sys.stdout)
-        formatter = jsonlogger.JsonFormatter(
-            fmt="%(timestamp)s %(level)s %(name)s %(message)s %(trace_id)s %(span_id)s",
+        formatter = JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(trace_id)s %(span_id)s",
             rename_fields={"levelname": "level", "asctime": "timestamp"},
             json_ensure_ascii=False,
         )
@@ -70,6 +73,10 @@ def init_tracing(service_name: str) -> None:
     Args:
         service_name: Name of the microservice (e.g. 'api', 'worker')
     """
+    if "pytest" in sys.modules:
+        trace.set_tracer_provider(TracerProvider())
+        return
+
     settings = get_settings()
 
     # Create resource attributes
