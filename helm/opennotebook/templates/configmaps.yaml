@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opennotebook-config
+  namespace: {{ .Release.Namespace }}
+data:
+  APP_NAME: "opennotebook"
+  APP_ENV: {{ .Values.api.env.APP_ENV | quote }}
+  LOG_LEVEL: {{ .Values.api.env.LOG_LEVEL | quote }}
+  LOG_FORMAT: {{ .Values.api.env.LOG_FORMAT | quote }}
+  DATABASE_URL: "postgresql+asyncpg://opennotebook:opennotebook@opennotebook-postgres:5432/opennotebook"
+  REDIS_URL: "redis://opennotebook-redis:6379/0"
+  CELERY_BROKER_URL: "redis://opennotebook-redis:6379/1"
+  CELERY_RESULT_BACKEND: "redis://opennotebook-redis:6379/2"
+  MINIO_ENDPOINT: "opennotebook-minio:9000"
+  MINIO_SECURE: "false"
+  MINIO_BUCKET: "opennotebook"
+  QDRANT_URL: "http://opennotebook-qdrant:6333"
+  QDRANT_COLLECTION: "opennotebook_chunks"
+  OLLAMA_BASE_URL: "http://opennotebook-ollama:11434"
+  EMBEDDING_MODEL: "BAAI/bge-small-en-v1.5"
+  EMBEDDING_BATCH_SIZE: "64"
+  OLLAMA_MODEL: "llama3:8b-instruct"

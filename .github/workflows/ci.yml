@@ -1,26 +1,101 @@
-# OpenNotebook CI
-# Triggers on pull requests to main
-
 name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
 
-# TODO: Implement CI jobs
-# jobs:
-#   backend:
-#     - ruff check
-#     - mypy
-#     - pytest (unit + integration)
-#     - coverage report (≥ 80%)
-#
-#   frontend:
-#     - eslint
-#     - tsc --noEmit
-#     - vitest
-#     - playwright e2e
-#
-#   docker:
-#     - Build all images
-#     - Trivy vulnerability scan
+jobs:
+  backend:
+    name: Backend CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev]"
+
+      - name: Lint with Ruff
+        run: |
+          ruff check backend/app
+
+      - name: Type Check with Mypy
+        run: |
+          mypy backend/app
+
+      - name: Run Pytest
+        run: |
+          cd backend && pytest --cov=app --cov-fail-under=80
+
+  frontend:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: |
+          cd frontend && npm ci
+
+      - name: Lint with ESLint
+        run: |
+          cd frontend && npm run lint
+
+      - name: Type Check with TSC
+        run: |
+          cd frontend && npm run type-check
+
+      - name: Run Vitest
+        run: |
+          cd frontend && npm test -- --run
+
+  docker:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: opennotebook-api:latest
+
+      - name: Build Worker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./worker/Dockerfile
+          push: false
+          tags: opennotebook-worker:latest
+
+      - name: Build Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: opennotebook-frontend:latest

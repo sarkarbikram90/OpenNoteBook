@@ -29,4 +29,4 @@ app/worker/tasks/ → Celery tasks
 - [x] Phase 3: Source processing pipeline
 - [x] Phase 4: RAG pipeline + streaming
 - [x] Phase 5: Frontend
-- [ ] Phase 6: Observability + CI/CD
+- [x] Phase 6: Observability + CI/CD

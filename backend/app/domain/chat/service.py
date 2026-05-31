@@ -104,13 +104,43 @@ async def stream_answer(
         context_str = build_context(chunks)
         prompt = build_prompt(context_str, history_str, question)
 
+        # Record active sources count in Prometheus
+        try:
+            from app.core.metrics import active_sources
+            source_count_res = await db.execute(
+                select(Source).where(
+                    Source.notebook_id == uuid.UUID(notebook_id),
+                    Source.status == "READY",
+                )
+            )
+            active_sources_count = len(source_count_res.scalars().all())
+            active_sources.labels(notebook_id=notebook_id).set(active_sources_count)
+        except Exception as e:
+            logger.warning("Failed to record active sources metric: %s", e)
+
         # ── 6. Stream tokens from Ollama ────────────────────────────────
         full_response = []
+        llm_start_time = time.perf_counter()
         async for token in stream_generate(prompt):
             full_response.append(token)
             yield _sse_event("token", {"token": token})
 
+        llm_duration_val = time.perf_counter() - llm_start_time
         response_text = "".join(full_response)
+
+        # Record LLM duration and token counts
+        try:
+            from app.core.metrics import llm_duration, llm_tokens_total
+            llm_duration.labels(model=settings.ollama_model).observe(llm_duration_val)
+
+            # Estimate tokens: prompt (~4 chars/token), completion (actual token count returned)
+            prompt_tokens_est = max(1, len(prompt) // 4)
+            completion_tokens_est = len(full_response)
+
+            llm_tokens_total.labels(model=settings.ollama_model, type="prompt").inc(prompt_tokens_est)
+            llm_tokens_total.labels(model=settings.ollama_model, type="completion").inc(completion_tokens_est)
+        except Exception as e:
+            logger.warning("Failed to record LLM metrics: %s", e)
 
         # ── 7. Emit citation events ─────────────────────────────────────
         citations = _extract_citations(response_text, chunks)

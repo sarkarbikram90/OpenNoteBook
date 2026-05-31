@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      app: opennotebook-frontend
+  template:
+    metadata:
+      labels:
+        app: opennotebook-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: "{{ .Values.global.registry }}/frontend:{{ .Values.global.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.frontend.port }}
+              name: http
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-frontend
+spec:
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: opennotebook-frontend
+---
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opennotebook-ingress
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+spec:
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: opennotebook-frontend
+                port:
+                  number: 80
+          {{- end }}
+    {{- end }}
+{{- end }}

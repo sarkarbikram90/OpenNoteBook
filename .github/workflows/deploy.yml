@@ -1,17 +1,86 @@
-# OpenNotebook Deploy
-# Triggers on push to main
-
 name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
-# TODO: Implement deploy pipeline
-# jobs:
-#   deploy:
-#     1. Build + tag Docker images
-#     2. Push to Artifact Registry
-#     3. helm upgrade --install opennotebook ./helm/opennotebook
-#     4. kubectl rollout status deployment/opennotebook-api
-#     5. Run smoke tests against staging
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION }} # e.g. us-central1-docker.pkg.dev
+  REPOSITORY: opennotebook
+  GKE_CLUSTER: opennotebook-cluster
+  GKE_ZONE: us-central1-a
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ── Google Cloud Authentication ──────────────────────────────────────────
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker ${{ env.GAR_LOCATION }} --quiet
+
+      # ── Build and Push Docker Images ──────────────────────────────────────
+
+      - name: Build & Push API Image
+        run: |
+          TAG=${{ github.sha }}
+          IMAGE_NAME=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:${TAG}
+          docker build -t ${IMAGE_NAME} ./backend
+          docker push ${IMAGE_NAME}
+
+      - name: Build & Push Worker Image
+        run: |
+          TAG=${{ github.sha }}
+          IMAGE_NAME=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/worker:${TAG}
+          docker build -f ./worker/Dockerfile -t ${IMAGE_NAME} .
+          docker push ${IMAGE_NAME}
+
+      - name: Build & Push Frontend Image
+        run: |
+          TAG=${{ github.sha }}
+          IMAGE_NAME=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/frontend:${TAG}
+          docker build -t ${IMAGE_NAME} ./frontend
+          docker push ${IMAGE_NAME}
+
+      # ── GKE Credentials & Helm Deployment ──────────────────────────────────
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_ZONE }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy Helm Chart
+        run: |
+          TAG=${{ github.sha }}
+          helm upgrade --install opennotebook ./helm/opennotebook \
+            --namespace opennotebook \
+            --create-namespace \
+            --set global.tag=${TAG} \
+            --set global.registry=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }} \
+            --values ./helm/opennotebook/values.yaml
+
+      - name: Verify Deployment Rollout
+        run: |
+          kubectl rollout status deployment/opennotebook-api --namespace opennotebook
+          kubectl rollout status deployment/opennotebook-worker --namespace opennotebook
+          kubectl rollout status deployment/opennotebook-frontend --namespace opennotebook

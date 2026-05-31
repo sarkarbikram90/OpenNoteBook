@@ -1,0 +1,228 @@
+# ── Prometheus ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-prometheus
+  template:
+    metadata:
+      labels:
+        app: opennotebook-prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: prometheus-storage
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-storage
+          persistentVolumeClaim:
+            claimName: prometheus-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-prometheus
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 9090
+      targetPort: http
+  selector:
+    app: opennotebook-prometheus
+
+---
+# ── Loki ────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-loki
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-loki
+  template:
+    metadata:
+      labels:
+        app: opennotebook-loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:latest
+          ports:
+            - containerPort: 3100
+              name: http
+          volumeMounts:
+            - name: loki-storage
+              mountPath: /loki
+      volumes:
+        - name: loki-storage
+          persistentVolumeClaim:
+            claimName: loki-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-loki
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 3100
+      targetPort: http
+  selector:
+    app: opennotebook-loki
+
+---
+# ── Promtail DaemonSet ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: opennotebook-promtail
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: opennotebook-promtail
+  template:
+    metadata:
+      labels:
+        app: opennotebook-promtail
+    spec:
+      containers:
+        - name: promtail
+          image: grafana/promtail:latest
+          args:
+            - "-config.file=/etc/promtail/promtail.yaml"
+          volumeMounts:
+            - name: logs
+              mountPath: /var/log
+            - name: config
+              mountPath: /etc/promtail
+      volumes:
+        - name: logs
+          hostPath:
+            path: /var/log
+        - name: config
+          configMap:
+            name: opennotebook-promtail-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opennotebook-promtail-config
+  namespace: {{ .Release.Namespace }}
+data:
+  promtail.yaml: |
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+    positions:
+      filename: /tmp/positions.yaml
+    clients:
+      - url: http://opennotebook-loki:3100/loki/api/v1/push
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+---
+# ── Grafana ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-grafana
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-grafana
+  template:
+    metadata:
+      labels:
+        app: opennotebook-grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+          ports:
+            - containerPort: 3000
+              name: http
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-grafana
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 3000
+      targetPort: http
+  selector:
+    app: opennotebook-grafana

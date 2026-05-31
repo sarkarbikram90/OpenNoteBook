@@ -270,6 +270,7 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
     depends_on:
       prometheus:
         condition: service_healthy

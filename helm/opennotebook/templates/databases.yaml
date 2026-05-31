@@ -1,0 +1,255 @@
+# ── PostgreSQL ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgres.storageSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-postgres
+  template:
+    metadata:
+      labels:
+        app: opennotebook-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opennotebook-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opennotebook-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: opennotebook-secrets
+                  key: POSTGRES_DB
+          ports:
+            - containerPort: 5432
+              name: postgres
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-postgres
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 5432
+      targetPort: postgres
+  selector:
+    app: opennotebook-postgres
+
+---
+# ── Qdrant ──────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.storageSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-qdrant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-qdrant
+  template:
+    metadata:
+      labels:
+        app: opennotebook-qdrant
+    spec:
+      containers:
+        - name: qdrant
+          image: {{ .Values.qdrant.image }}
+          ports:
+            - containerPort: 6333
+              name: http
+            - containerPort: 6334
+              name: grpc
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+      volumes:
+        - name: qdrant-storage
+          persistentVolumeClaim:
+            claimName: qdrant-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-qdrant
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 6333
+      targetPort: http
+      name: http
+    - port: 6334
+      targetPort: grpc
+      name: grpc
+  selector:
+    app: opennotebook-qdrant
+
+---
+# ── MinIO ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.minio.storageSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-minio
+  template:
+    metadata:
+      labels:
+        app: opennotebook-minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          command: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opennotebook-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opennotebook-secrets
+                  key: MINIO_SECRET_KEY
+          ports:
+            - containerPort: 9000
+              name: s3
+            - containerPort: 9001
+              name: console
+          volumeMounts:
+            - name: minio-storage
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+      volumes:
+        - name: minio-storage
+          persistentVolumeClaim:
+            claimName: minio-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-minio
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 9000
+      targetPort: s3
+      name: s3
+    - port: 9001
+      targetPort: console
+      name: console
+  selector:
+    app: opennotebook-minio
+
+---
+# ── Redis ───────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opennotebook-redis
+  template:
+    metadata:
+      labels:
+        app: opennotebook-redis
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opennotebook-redis
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 6379
+      targetPort: redis
+  selector:
+    app: opennotebook-redis

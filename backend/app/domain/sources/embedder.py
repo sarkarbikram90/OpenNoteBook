@@ -8,6 +8,7 @@ to avoid reloading on every task invocation.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from app.core.config import get_settings
@@ -63,12 +64,21 @@ def embed_texts(texts: list[str], batch_size: int | None = None) -> list[list[fl
 
     logger.info("Embedding %d texts in batches of %d", len(texts), batch_size)
 
+    start_time = time.perf_counter()
     embeddings = model.encode(
         prefixed,
         batch_size=batch_size,
         show_progress_bar=False,
         normalize_embeddings=True,
     )
+    duration = time.perf_counter() - start_time
+
+    # Record embedding duration metric
+    from app.core.metrics import embedding_duration
+    embedding_duration.labels(
+        batch_size=batch_size,
+        model=settings.embedding_model,
+    ).observe(duration)
 
     # Convert numpy arrays to plain lists
     result = [emb.tolist() for emb in embeddings]

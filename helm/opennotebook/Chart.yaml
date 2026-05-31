@@ -1,0 +1,6 @@
+apiVersion: v2
+name: opennotebook
+description: A production-ready Helm chart for OpenNotebook deployed on GKE.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

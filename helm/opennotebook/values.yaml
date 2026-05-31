@@ -1,0 +1,125 @@
+# ── Global Settings ──────────────────────────────────────────────────────────
+global:
+  registry: "us-central1-docker.pkg.dev/my-project/opennotebook"
+  tag: "latest"
+  imagePullPolicy: IfNotPresent
+
+# ── API Gateway (FastAPI) ───────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  port: 8000
+  resources:
+    limits:
+      cpu: "2.0"
+      memory: "1Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  env:
+    APP_ENV: "production"
+    LOG_FORMAT: "json"
+    LOG_LEVEL: "INFO"
+
+# ── Worker Service (Celery) ─────────────────────────────────────────────────
+worker:
+  replicaCount: 2
+  resources:
+    limits:
+      cpu: "2.0"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 80
+
+# ── Frontend Service (React + Nginx) ────────────────────────────────────────
+frontend:
+  replicaCount: 2
+  port: 80
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "64Mi"
+
+# ── Database & Storage Settings ─────────────────────────────────────────────
+postgres:
+  image: postgres:16-alpine
+  storageSize: 10Gi
+  resources:
+    limits:
+      cpu: "1.0"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+
+qdrant:
+  image: qdrant/qdrant:latest
+  storageSize: 10Gi
+  resources:
+    limits:
+      cpu: "1.0"
+      memory: "2Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+
+minio:
+  image: minio/minio:latest
+  storageSize: 20Gi
+  resources:
+    limits:
+      cpu: "1.0"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+
+redis:
+  image: redis:7-alpine
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+# ── Ollama Local AI Inference ────────────────────────────────────────────────
+ollama:
+  image: ollama/ollama:latest
+  storageSize: 50Gi
+  gpu:
+    enabled: true
+    type: "nvidia.com/gpu"
+    count: 1
+  resources:
+    limits:
+      cpu: "4.0"
+      memory: "8Gi"
+    requests:
+      cpu: "2.0"
+      memory: "4Gi"
+
+# ── Ingress Configuration ───────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: "gce"
+  hosts:
+    - host: opennotebook.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

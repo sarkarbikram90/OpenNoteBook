@@ -75,21 +75,25 @@ def retrieve(
     rrf_k = settings.rrf_k
 
     total_start = time.perf_counter()
+    from app.core.metrics import retrieval_duration
 
     # ── Stage 1a: Dense vector search (Qdrant) ──────────────────────────
     t0 = time.perf_counter()
     dense_results = _dense_search(query, notebook_id, top_k, source_filter)
     dense_latency = (time.perf_counter() - t0) * 1000
+    retrieval_duration.labels(stage="dense").observe(dense_latency / 1000.0)
 
     # ── Stage 1b: BM25 keyword search ───────────────────────────────────
     t0 = time.perf_counter()
     bm25_results = _bm25_search(query, notebook_id, top_k)
     bm25_latency = (time.perf_counter() - t0) * 1000
+    retrieval_duration.labels(stage="bm25").observe(bm25_latency / 1000.0)
 
     # ── Stage 2: Reciprocal Rank Fusion ─────────────────────────────────
     t0 = time.perf_counter()
     fused = _reciprocal_rank_fusion(dense_results, bm25_results, k=rrf_k, top_k=top_k)
     fusion_latency = (time.perf_counter() - t0) * 1000
+    retrieval_duration.labels(stage="fusion").observe(fusion_latency / 1000.0)
 
     # Apply source filter to BM25 results (dense already filtered by Qdrant)
     if source_filter:
@@ -111,6 +115,7 @@ def retrieve(
     t0 = time.perf_counter()
     reranked = rerank(query, fused, top_k=rerank_top_k)
     rerank_latency = (time.perf_counter() - t0) * 1000
+    retrieval_duration.labels(stage="rerank").observe(rerank_latency / 1000.0)
 
     total_latency = (time.perf_counter() - total_start) * 1000
 

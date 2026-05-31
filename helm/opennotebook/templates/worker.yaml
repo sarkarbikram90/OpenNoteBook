@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app: opennotebook-worker
+  template:
+    metadata:
+      labels:
+        app: opennotebook-worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.global.registry }}/worker:{{ .Values.global.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO", "-Q", "processing,default"]
+          envFrom:
+            - configMapRef:
+                name: opennotebook-config
+            - secretRef:
+                name: opennotebook-secrets
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
