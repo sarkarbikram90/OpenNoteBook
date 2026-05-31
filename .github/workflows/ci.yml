@@ -1,0 +1,26 @@
+# OpenNotebook CI
+# Triggers on pull requests to main
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+# TODO: Implement CI jobs
+# jobs:
+#   backend:
+#     - ruff check
+#     - mypy
+#     - pytest (unit + integration)
+#     - coverage report (≥ 80%)
+#
+#   frontend:
+#     - eslint
+#     - tsc --noEmit
+#     - vitest
+#     - playwright e2e
+#
+#   docker:
+#     - Build all images
+#     - Trivy vulnerability scan

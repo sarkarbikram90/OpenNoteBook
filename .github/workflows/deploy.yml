@@ -1,0 +1,17 @@
+# OpenNotebook Deploy
+# Triggers on push to main
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# TODO: Implement deploy pipeline
+# jobs:
+#   deploy:
+#     1. Build + tag Docker images
+#     2. Push to Artifact Registry
+#     3. helm upgrade --install opennotebook ./helm/opennotebook
+#     4. kubectl rollout status deployment/opennotebook-api
+#     5. Run smoke tests against staging

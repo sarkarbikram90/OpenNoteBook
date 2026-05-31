@@ -1,0 +1,343 @@
+# ─────────────────────────────────────────────
+# OpenNotebook — Docker Compose (Development)
+# ─────────────────────────────────────────────
+# Usage: docker compose up -d
+# Docs:  docs/local-dev.md
+# ─────────────────────────────────────────────
+
+name: opennotebook
+
+services:
+  # ── Application Services ────────────────────
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: opennotebook-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - MINIO_ENDPOINT=minio:9000
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: opennotebook-worker
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - MINIO_ENDPOINT=minio:9000
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.worker.celery_app", "inspect", "ping", "--timeout", "5"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: build
+    container_name: opennotebook-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      - VITE_API_URL=http://localhost:${API_PORT:-8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  # ── Data Services ───────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: opennotebook-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-opennotebook}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-opennotebook}
+      - POSTGRES_DB=${POSTGRES_DB:-opennotebook}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opennotebook} -d ${POSTGRES_DB:-opennotebook}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: opennotebook-qdrant
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  minio:
+    image: minio/minio:latest
+    container_name: opennotebook-minio
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  redis:
+    image: redis:7-alpine
+    container_name: opennotebook-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: opennotebook-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment for GPU passthrough (requires nvidia-container-toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  # ── Dev Tools ───────────────────────────────
+
+  flower:
+    image: mher/flower:latest
+    container_name: opennotebook-flower
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - FLOWER_PORT=5555
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5555/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  # ── Observability Stack ─────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: opennotebook-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      # - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: opennotebook-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  loki:
+    image: grafana/loki:latest
+    container_name: opennotebook-loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - loki_data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: opennotebook-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      # - ./promtail/config.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+# ── Volumes ─────────────────────────────────
+
+volumes:
+  postgres_data:
+    name: opennotebook_postgres_data
+  qdrant_data:
+    name: opennotebook_qdrant_data
+  minio_data:
+    name: opennotebook_minio_data
+  redis_data:
+    name: opennotebook_redis_data
+  ollama_data:
+    name: opennotebook_ollama_data
+  grafana_data:
+    name: opennotebook_grafana_data
+  prometheus_data:
+    name: opennotebook_prometheus_data
+  loki_data:
+    name: opennotebook_loki_data
+
+# ── Networks ────────────────────────────────
+
+networks:
+  opennotebook:
+    name: opennotebook
+    driver: bridge
