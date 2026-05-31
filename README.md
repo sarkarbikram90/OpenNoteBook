@@ -1,0 +1,2 @@
+# OpenNoteBook
+NotebookLM-style application
