@@ -42,6 +42,10 @@ class ChunkPayload:
     start_char: int = 0
     end_char: int = 0
     embedding_model: str = ""
+    workspace_id: str = ""
+    sensitivity_level: str = "internal"
+    allowed_roles: list[str] = field(default_factory=list)
+    allowed_users: list[str] = field(default_factory=list)
     vector: list[float] = field(default_factory=list)
 
 
@@ -102,6 +106,10 @@ def upsert_chunks(chunks: list[ChunkPayload]) -> None:
                 "chunk_id": chunk.chunk_id,
                 "source_id": chunk.source_id,
                 "notebook_id": chunk.notebook_id,
+                "workspace_id": chunk.workspace_id,
+                "sensitivity_level": chunk.sensitivity_level,
+                "allowed_roles": chunk.allowed_roles,
+                "allowed_users": chunk.allowed_users,
                 "text": chunk.text,
                 "token_count": chunk.token_count,
                 "page": chunk.page,

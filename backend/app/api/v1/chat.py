@@ -86,6 +86,7 @@ async def chat(
         db=db,
         session_id=str(body.session_id) if body.session_id else None,
         source_filter=source_filter,
+        user_id=str(user.id),
     )
 
     return StreamingResponse(

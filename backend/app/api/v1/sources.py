@@ -125,21 +125,25 @@ async def upload_file_source(
             detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
         )
 
-    # Upload to MinIO
+    # Upload to Data Lake (MinIO/S3 with local lake fallback)
     source_id = uuid.uuid4()
     object_name = f"sources/{source_id}/{file.filename}"
 
-    from app.infrastructure.minio.client import upload_file
-    upload_file(content, object_name, content_type=file.content_type or "application/octet-stream")
+    from app.infrastructure.storage.service import get_storage_service, StorageService
+    storage = get_storage_service()
+    storage.upload_raw_document(content, object_name, content_type=file.content_type or "application/octet-stream")
+    file_hash = StorageService.calculate_file_hash(content)
 
-    # Create source record
+    # Create source record with provenance metadata
     source = Source(
         id=source_id,
         notebook_id=notebook_id,
         name=file.filename,
         source_type=source_type,
         storage_path=object_name,
+        storage_type=storage.provider,
         status="PENDING",
+        metadata_={"sha256": file_hash, "size_bytes": len(content)},
     )
     db.add(source)
     await db.flush()
@@ -455,3 +459,41 @@ async def stream_source_status(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Zero-Reupload Re-index Endpoint ─────────────────────────────────────────
+
+
+@router.post(
+    "/{source_id}/reindex",
+    response_model=SourceUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Re-index an existing source from Data Lake",
+)
+async def reindex_source_endpoint(
+    source_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> SourceUploadResponse:
+    """Re-derive chunks and vector embeddings directly from the data lake."""
+    result = await db.execute(
+        select(Source)
+        .join(Notebook, Source.notebook_id == Notebook.id)
+        .where(
+            Source.id == source_id,
+            Notebook.user_id == user.id,
+        )
+    )
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    source.status = "PENDING"
+    source.error_message = None
+    await db.flush()
+
+    from app.worker.tasks.process_source import reindex_source
+    reindex_source.delay(str(source_id))
+
+    return SourceUploadResponse(source_id=source_id)
+

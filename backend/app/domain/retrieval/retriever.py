@@ -23,6 +23,55 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class UserSecurityContext:
+    """Security credentials and clearance of the user requesting retrieval."""
+
+    user_id: str
+    workspace_id: str | None = None
+    roles: list[str] = field(default_factory=lambda: ["viewer"])
+    max_sensitivity: str = "internal"  # "public", "internal", "confidential", "restricted"
+
+
+def is_chunk_authorized(chunk: dict[str, Any], sec_ctx: UserSecurityContext | None) -> bool:
+    """Evaluate whether a chunk is authorized for retrieval under the user security context."""
+    if sec_ctx is None:
+        return True
+
+    # Owners and admins have full access across the workspace/notebook
+    roles_lower = {r.lower() for r in sec_ctx.roles}
+    if "owner" in roles_lower or "admin" in roles_lower:
+        return True
+
+    # 1. Check Sensitivity Classification
+    chunk_sens = chunk.get("sensitivity_level", "internal")
+    from app.domain.governance.sensitivity import SensitivityLevel
+    try:
+        level = SensitivityLevel(chunk_sens.lower())
+        if not level.is_accessible_by(sec_ctx.max_sensitivity):
+            return False
+    except ValueError:
+        pass
+
+    # 2. Check Document-level ACLs (allowed_roles, allowed_users)
+    allowed_roles = chunk.get("allowed_roles") or []
+    allowed_users = chunk.get("allowed_users") or []
+
+    # If no explicit ACL restrictions exist, default to workspace/notebook membership
+    if not allowed_roles and not allowed_users:
+        return True
+
+    # Direct user grant
+    if sec_ctx.user_id in allowed_users:
+        return True
+
+    # Role grant
+    if any(r.lower() in roles_lower for r in allowed_roles):
+        return True
+
+    return False
+
+
+@dataclass
 class RetrievedChunk:
     """A chunk returned by the retrieval pipeline with full metadata."""
 
@@ -37,6 +86,7 @@ class RetrievedChunk:
     token_count: int = 0
     start_char: int = 0
     end_char: int = 0
+    sensitivity_level: str = "internal"
 
 
 @dataclass
@@ -58,13 +108,15 @@ def retrieve(
     query: str,
     notebook_id: str,
     source_filter: list[str] | None = None,
+    security_context: UserSecurityContext | None = None,
 ) -> RetrievalResult:
-    """Run the full three-stage hybrid retrieval pipeline.
+    """Run the full three-stage hybrid retrieval pipeline with security trimming.
 
     Args:
         query: The user's search query.
         notebook_id: UUID of the notebook to search within.
         source_filter: Optional list of source UUIDs to restrict results to.
+        security_context: Optional user security clearance & ACL roles.
 
     Returns:
         ``RetrievalResult`` with ranked chunks and timing metadata.
@@ -79,13 +131,13 @@ def retrieve(
 
     # ── Stage 1a: Dense vector search (Qdrant) ──────────────────────────
     t0 = time.perf_counter()
-    dense_results = _dense_search(query, notebook_id, top_k, source_filter)
+    dense_results = _dense_search(query, notebook_id, top_k, source_filter, security_context)
     dense_latency = (time.perf_counter() - t0) * 1000
     retrieval_duration.labels(stage="dense").observe(dense_latency / 1000.0)
 
     # ── Stage 1b: BM25 keyword search ───────────────────────────────────
     t0 = time.perf_counter()
-    bm25_results = _bm25_search(query, notebook_id, top_k)
+    bm25_results = _bm25_search(query, notebook_id, top_k, security_context)
     bm25_latency = (time.perf_counter() - t0) * 1000
     retrieval_duration.labels(stage="bm25").observe(bm25_latency / 1000.0)
 
@@ -133,6 +185,7 @@ def retrieve(
             token_count=r.chunk.get("token_count", 0),
             start_char=r.chunk.get("start_char", 0),
             end_char=r.chunk.get("end_char", 0),
+            sensitivity_level=r.chunk.get("sensitivity_level", "internal"),
         )
         for r in reranked
     ]
@@ -167,8 +220,9 @@ def _dense_search(
     notebook_id: str,
     top_k: int,
     source_filter: list[str] | None = None,
+    security_context: UserSecurityContext | None = None,
 ) -> list[dict[str, Any]]:
-    """Stage 1a: Dense vector search via Qdrant cosine similarity."""
+    """Stage 1a: Dense vector search via Qdrant cosine similarity with security trimming."""
     from qdrant_client.models import Filter, FieldCondition, MatchValue
     from app.domain.sources.embedder import embed_texts
     from app.infrastructure.qdrant.client import get_qdrant_client
@@ -186,28 +240,30 @@ def _dense_search(
     must_conditions = [
         FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))
     ]
-    if source_filter:
-        # Qdrant doesn't have an "in" filter natively in older versions,
-        # so we use multiple should conditions for source filtering
-        pass  # We'll filter post-retrieval for simplicity
-
     search_filter = Filter(must=must_conditions)
+
+    # Fetch slightly larger candidate set to allow for ACL security trimming
+    candidate_limit = top_k * 2 if security_context else top_k
 
     results = client.search(
         collection_name=settings.qdrant_collection,
         query_vector=query_vector,
         query_filter=search_filter,
-        limit=top_k,
+        limit=candidate_limit,
         with_payload=True,
     )
 
     chunks = []
     for point in results:
         payload = point.payload or {}
+        if not is_chunk_authorized(payload, security_context):
+            continue
         payload["_dense_score"] = point.score
         chunks.append(payload)
+        if len(chunks) >= top_k:
+            break
 
-    logger.debug("Dense search returned %d results", len(chunks))
+    logger.debug("Dense search returned %d authorized results", len(chunks))
     return chunks
 
 
@@ -215,8 +271,9 @@ def _bm25_search(
     query: str,
     notebook_id: str,
     top_k: int,
+    security_context: UserSecurityContext | None = None,
 ) -> list[dict[str, Any]]:
-    """Stage 1b: BM25 keyword search from the Redis-cached index."""
+    """Stage 1b: BM25 keyword search from the Redis-cached index with security trimming."""
     from app.domain.sources.bm25_index import _tokenise, load_bm25_index
     from app.infrastructure.qdrant.client import get_chunks_by_ids
 
@@ -228,35 +285,40 @@ def _bm25_search(
     tokenised_query = _tokenise(query)
     scores = bm25.get_scores(tokenised_query)
 
-    # Filter to positive scores and take top-k
+    # Filter to positive scores and take top candidates
     scored_pairs = [
         (cid, score)
         for cid, score in zip(chunk_ids, scores)
         if score > 0
     ]
     scored_pairs.sort(key=lambda pair: pair[1], reverse=True)
-    scored_pairs = scored_pairs[:top_k]
+    candidate_limit = top_k * 2 if security_context else top_k
+    scored_pairs = scored_pairs[:candidate_limit]
 
     if not scored_pairs:
         return []
 
-    # Fetch only the matched top-k chunk payloads from Qdrant
+    # Fetch matched chunk payloads from Qdrant
     top_chunk_ids = [cid for cid, _ in scored_pairs]
     score_map = dict(scored_pairs)
     payloads = get_chunks_by_ids(top_chunk_ids)
 
     results = []
     for payload in payloads:
+        if not is_chunk_authorized(payload, security_context):
+            continue
         cid = payload.get("chunk_id", "")
         if cid in score_map:
             p = dict(payload)
             p["_bm25_score"] = score_map[cid]
             results.append(p)
+            if len(results) >= top_k:
+                break
 
     # Sort results by bm25 score descending
     results.sort(key=lambda r: r["_bm25_score"], reverse=True)
 
-    logger.debug("BM25 search returned %d results", len(results))
+    logger.debug("BM25 search returned %d authorized results", len(results))
     return results
 
 

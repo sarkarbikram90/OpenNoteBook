@@ -61,7 +61,9 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     max_files_per_request: int = 10
 
-    # ── MinIO (Object Storage) ───────────────────
+    # ── MinIO / Storage (Object Storage / Data Lake) ────
+    storage_provider: str = "minio"  # "minio", "s3", or "local"
+    local_storage_path: str = "./data/lake"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"

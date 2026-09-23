@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -91,6 +92,8 @@ class Workspace(Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     slug: Mapped[str] = mapped_column(Text, nullable=False)
+    enable_pii_redaction: Mapped[bool] = mapped_column(Boolean, server_default="true", nullable=False)
+    default_sensitivity: Mapped[str] = mapped_column(Text, server_default="internal", nullable=False)
 
     # Relationships
     organization: Mapped[Organization] = relationship(back_populates="workspaces")
@@ -204,6 +207,10 @@ class Source(Base):
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sensitivity_level: Mapped[str] = mapped_column(Text, server_default="internal", nullable=False)
+    pii_redacted: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    pii_entities_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    storage_type: Mapped[str] = mapped_column(Text, server_default="minio", nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, server_default="{}", nullable=False
     )
@@ -399,4 +406,41 @@ class FailedJob(Base):
 
     def __repr__(self) -> str:
         return f"<FailedJob id={self.id} source_id={self.source_id} task={self.task_name}>"
+
+
+# ── Enterprise Connectors ───────────────────────────────────────────────────
+
+
+class ConnectorConfig(Base):
+    """Enterprise external data connector configuration."""
+
+    __tablename__ = "connector_configs"
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    notebook_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("notebooks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    connector_type: Mapped[str] = mapped_column(Text, nullable=False)  # "web", "s3", "gdrive", "sharepoint"
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}", nullable=False)
+    schedule_cron: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, server_default="ACTIVE", nullable=False)  # "ACTIVE", "PAUSED", "ERROR"
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    workspace: Mapped[Workspace] = relationship(lazy="selectin")
+    notebook: Mapped[Notebook | None] = relationship(lazy="selectin")
+
+    def __repr__(self) -> str:
+        return f"<ConnectorConfig id={self.id} type={self.connector_type} name={self.name!r}>"
+
 

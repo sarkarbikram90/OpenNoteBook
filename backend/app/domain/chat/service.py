@@ -40,11 +40,13 @@ async def stream_answer(
     db: AsyncSession,
     session_id: str | None = None,
     source_filter: list[str] | None = None,
+    user_id: str | None = None,
+    user_roles: list[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream an RAG answer as SSE-formatted event strings.
 
     Yields SSE event strings in the format:
-        ``event: <type>\\ndata: <json>\\n\\n``
+        ``event: <type>\ndata: <json>\n\n``
 
     Event types:
         - ``token``: A generated token.
@@ -58,6 +60,8 @@ async def stream_answer(
         db: Async database session.
         session_id: Optional existing chat session ID.
         source_filter: Optional list of source UUIDs to restrict retrieval.
+        user_id: Optional UUID of the user for security clearance.
+        user_roles: Optional list of roles for ACL trimming.
 
     Yields:
         SSE-formatted event strings.
@@ -67,8 +71,9 @@ async def stream_answer(
 
     # Deferred imports to avoid loading heavy ML libs at module level
     import asyncio
-    from app.domain.retrieval.retriever import retrieve
+    from app.domain.retrieval.retriever import retrieve, UserSecurityContext
     from app.infrastructure.ollama.client import stream_generate
+    from app.domain.chat.orchestrator import GroundedPromptBuilder
 
     try:
         # ── 1. Get or create chat session ───────────────────────────────
@@ -94,26 +99,39 @@ async def stream_answer(
         history_messages = await _load_history(
             db, session.id, settings.max_history_messages, exclude_message_id=user_msg_id
         )
-        history_str = format_history(history_messages)
 
         # Commit initial database state
         await db.commit()
 
-        # ── 5. Retrieve relevant chunks offloaded to threadpool ─────────
+        # ── 5. Build Security Context & Retrieve relevant chunks ────────
+        sec_ctx = None
+        if user_id:
+            roles = user_roles or ["viewer"]
+            max_sens = "restricted" if any(r.lower() in ("owner", "admin") for r in roles) else "internal"
+            sec_ctx = UserSecurityContext(
+                user_id=user_id,
+                roles=roles,
+                max_sensitivity=max_sens,
+            )
+
         retrieval_result = await asyncio.to_thread(
             retrieve,
             query=question,
             notebook_id=notebook_id,
             source_filter=source_filter,
+            security_context=sec_ctx,
         )
         chunks = retrieval_result.chunks
 
         # Resolve source names from DB for chunks that lack them
         await _enrich_source_names(db, chunks)
 
-        # ── 6. Build prompt ─────────────────────────────────────────────
-        context_str = build_context(chunks)
-        prompt = build_prompt(context_str, history_str, question)
+        # ── 6. Build Grounded Prompt with Citations ─────────────────────
+        prompt, prompt_citations = GroundedPromptBuilder.build_prompt(
+            query=question,
+            chunks=chunks,
+            history_messages=history_messages,
+        )
 
         # Record active sources count in Prometheus
         try:
@@ -154,9 +172,20 @@ async def stream_answer(
             logger.warning("Failed to record LLM metrics: %s", e)
 
         # ── 8. Emit citation events ─────────────────────────────────────
-        citations = _extract_citations(response_text, chunks)
-        for citation in citations:
-            yield _sse_event("citation", citation)
+        citations = []
+        for c in prompt_citations:
+            cit_dict = {
+                "source_id": c.source_id,
+                "source_name": c.source_name,
+                "page": c.page,
+                "section": c.section,
+                "chunk_id": c.chunk_id,
+                "sensitivity_level": c.sensitivity_level,
+                "relevance_score": c.relevance_score,
+                "citation_label": c.format_citation(),
+            }
+            citations.append(cit_dict)
+            yield _sse_event("citation", cit_dict)
 
         # ── 9. Save assistant message ───────────────────────────────────
         latency_ms = int((time.perf_counter() - start_time) * 1000)

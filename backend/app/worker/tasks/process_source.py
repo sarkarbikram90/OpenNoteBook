@@ -53,6 +53,9 @@ def _update_source_status(
     chunk_count: int | None = None,
     page_count: int | None = None,
     embedding_model: str | None = None,
+    pii_redacted: bool | None = None,
+    pii_entities_count: int | None = None,
+    sensitivity_level: str | None = None,
 ) -> None:
     """Update the source record status in the database and publish to Redis."""
     from app.infrastructure.db.models import Source
@@ -69,6 +72,12 @@ def _update_source_status(
             values["page_count"] = page_count
         if embedding_model is not None:
             values["embedding_model"] = embedding_model
+        if pii_redacted is not None:
+            values["pii_redacted"] = pii_redacted
+        if pii_entities_count is not None:
+            values["pii_entities_count"] = pii_entities_count
+        if sensitivity_level is not None:
+            values["sensitivity_level"] = sensitivity_level
 
         session.execute(
             update(Source).where(Source.id == uuid.UUID(source_id)).values(**values)
@@ -81,12 +90,15 @@ def _update_source_status(
     publish_status(source_id, status, {
         "chunk_count": chunk_count,
         "error_message": error_message,
+        "pii_redacted": pii_redacted,
+        "pii_entities_count": pii_entities_count,
+        "sensitivity_level": sensitivity_level,
     })
 
 
 def _get_source_record(source_id: str) -> dict:
-    """Fetch the source record from the database."""
-    from app.infrastructure.db.models import Source
+    """Fetch the source record from the database including workspace and governance settings."""
+    from app.infrastructure.db.models import Source, Notebook
     from sqlalchemy import select
 
     session = _get_sync_session()
@@ -97,13 +109,25 @@ def _get_source_record(source_id: str) -> dict:
         source = result.scalar_one_or_none()
         if source is None:
             raise ValueError(f"Source not found: {source_id}")
+
+        # Fetch workspace_id from parent notebook if present
+        workspace_id = ""
+        nb_res = session.execute(
+            select(Notebook.workspace_id).where(Notebook.id == source.notebook_id)
+        )
+        nb_ws = nb_res.scalar_one_or_none()
+        if nb_ws:
+            workspace_id = str(nb_ws)
+
         return {
             "id": str(source.id),
             "notebook_id": str(source.notebook_id),
+            "workspace_id": workspace_id,
             "name": source.name,
             "source_type": source.source_type,
             "storage_path": source.storage_path,
             "source_url": source.source_url,
+            "sensitivity_level": getattr(source, "sensitivity_level", "internal"),
         }
     finally:
         session.close()
@@ -129,7 +153,8 @@ def process_source(self, source_id: str) -> dict:
     from app.domain.sources.chunker import chunk_document
     from app.domain.sources.embedder import embed_texts
     from app.domain.sources.bm25_index import build_bm25_index
-    from app.infrastructure.minio.client import download_file
+    from app.infrastructure.storage.service import get_storage_service
+    from app.domain.governance.pii import PIIScrubber
     from app.infrastructure.qdrant.client import upsert_chunks, ChunkPayload, delete_by_source
 
     settings = get_settings()
@@ -138,11 +163,13 @@ def process_source(self, source_id: str) -> dict:
         # Load source record
         source = _get_source_record(source_id)
         notebook_id = source["notebook_id"]
+        workspace_id = source.get("workspace_id", "")
         source_type = source["source_type"]
+        sensitivity_level = source.get("sensitivity_level", "internal")
 
         logger.info(
-            "Processing source %s (type=%s, notebook=%s)",
-            source_id, source_type, notebook_id,
+            "Processing source %s (type=%s, notebook=%s, workspace=%s, sensitivity=%s)",
+            source_id, source_type, notebook_id, workspace_id, sensitivity_level,
         )
 
         # ── Step 1: EXTRACTING ──────────────────────────────────────────
@@ -152,15 +179,38 @@ def process_source(self, source_id: str) -> dict:
             # URL/YouTube: extract from the URL directly
             content = source["source_url"] or ""
         else:
-            # File-based: download from MinIO
+            # File-based: download from Data Lake (MinIO/S3 or local fallback)
             storage_path = source["storage_path"]
             if not storage_path:
                 raise ValueError(f"No storage path for source {source_id}")
-            content = download_file(storage_path)
+            storage = get_storage_service()
+            content = storage.download_raw_document(storage_path)
 
         extraction = extract(source_type, content)
 
         page_count = extraction.metadata.get("page_count", len(extraction.pages))
+
+        # ── Step 1b: GOVERNANCE & PII REDACTION ─────────────────────────
+        scrubber = PIIScrubber()
+        total_pii_redacted = 0
+        pii_entities: dict[str, int] = {}
+
+        for p in extraction.pages:
+            scrub_res = scrubber.scrub(p.text)
+            p.text = scrub_res.cleaned_text
+            total_pii_redacted += scrub_res.total_redacted
+            for k, v in scrub_res.entities_found.items():
+                pii_entities[k] = pii_entities.get(k, 0) + v
+
+        if hasattr(extraction, "text") and extraction.text:
+            scrub_res = scrubber.scrub(extraction.text)
+            extraction.text = scrub_res.cleaned_text
+
+        if total_pii_redacted > 0:
+            logger.info(
+                "Sanitized %d PII entities in source %s: %s",
+                total_pii_redacted, source_id, pii_entities,
+            )
 
         # ── Step 2: CHUNKING ────────────────────────────────────────────
         _update_source_status(source_id, "CHUNKING", page_count=page_count)
@@ -178,6 +228,9 @@ def process_source(self, source_id: str) -> dict:
                 chunk_count=0,
                 page_count=page_count,
                 embedding_model=settings.embedding_model,
+                pii_redacted=bool(total_pii_redacted > 0),
+                pii_entities_count=total_pii_redacted,
+                sensitivity_level=sensitivity_level,
             )
             return {"source_id": source_id, "status": "READY", "chunks": 0}
 
@@ -196,6 +249,8 @@ def process_source(self, source_id: str) -> dict:
                 chunk_id=chunk.chunk_id,
                 source_id=chunk.source_id,
                 notebook_id=chunk.notebook_id,
+                workspace_id=workspace_id,
+                sensitivity_level=sensitivity_level,
                 text=chunk.text,
                 token_count=chunk.token_count,
                 page=chunk.page,
@@ -219,17 +274,21 @@ def process_source(self, source_id: str) -> dict:
             chunk_count=len(chunks),
             page_count=page_count,
             embedding_model=settings.embedding_model,
+            pii_redacted=bool(total_pii_redacted > 0),
+            pii_entities_count=total_pii_redacted,
+            sensitivity_level=sensitivity_level,
         )
 
         logger.info(
-            "Source %s processed successfully: %d chunks, %d pages",
-            source_id, len(chunks), page_count,
+            "Source %s processed successfully: %d chunks, %d pages, %d PII redacted",
+            source_id, len(chunks), page_count, total_pii_redacted,
         )
         return {
             "source_id": source_id,
             "status": "READY",
             "chunks": len(chunks),
             "pages": page_count,
+            "pii_redacted_count": total_pii_redacted,
         }
 
     except Exception as exc:
@@ -252,3 +311,17 @@ def process_source(self, source_id: str) -> dict:
             "status": "FAILED",
             "error": error_msg,
         }
+
+
+@celery_app.task(
+    bind=True,
+    name="app.worker.tasks.reindex_source",
+    max_retries=3,
+    default_retry_delay=30,
+    acks_late=True,
+)
+def reindex_source(self, source_id: str) -> dict:
+    """Re-derive vector embeddings and chunks directly from the raw data lake without re-upload."""
+    logger.info("Triggering zero-reupload re-index for source %s from Data Lake", source_id)
+    return process_source(source_id)
+

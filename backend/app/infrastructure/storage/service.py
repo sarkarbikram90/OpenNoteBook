@@ -1,0 +1,153 @@
+"""OpenNotebook — Central Data Lake and Object Storage service.
+
+Provides a unified storage interface supporting:
+1. S3 / MinIO Object Storage
+2. Local filesystem fallback for dev/testing
+3. SHA-256 cryptographic provenance hashing
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import logging
+from pathlib import Path
+from functools import lru_cache
+from typing import Any
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+class StorageService:
+    """Unified Data Lake Object Storage service."""
+
+    def __init__(self, provider: str | None = None, local_path: str | None = None) -> None:
+        self.settings = get_settings()
+        self.provider = (provider or self.settings.storage_provider).lower()
+        self.local_root = Path(local_path or self.settings.local_storage_path)
+        if self.provider == "local":
+            self.local_root.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def calculate_file_hash(data: bytes) -> str:
+        """Compute the SHA-256 checksum of raw file bytes for provenance."""
+        return hashlib.sha256(data).hexdigest()
+
+    def upload_raw_document(
+        self,
+        data: bytes,
+        object_name: str,
+        content_type: str = "application/octet-stream",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Upload raw document bytes to the data lake.
+
+        Args:
+            data: File bytes.
+            object_name: Storage key/path (e.g. ``raw/{org_id}/{workspace_id}/{source_id}/{filename}``).
+            content_type: MIME type.
+            metadata: Optional dictionary of provenance metadata.
+
+        Returns:
+            The normalized object name where content was stored.
+        """
+        # Normalize key
+        clean_object_name = object_name.lstrip("/")
+
+        if self.provider in ("minio", "s3"):
+            try:
+                from app.infrastructure.minio.client import upload_file, ensure_bucket
+                ensure_bucket()
+                return upload_file(data, clean_object_name, content_type=content_type)
+            except Exception as exc:
+                logger.warning(
+                    "MinIO upload failed (%s). Falling back to local lake storage: %s",
+                    exc, clean_object_name,
+                )
+                # Fallback to local
+                return self._upload_local(data, clean_object_name)
+
+        return self._upload_local(data, clean_object_name)
+
+    def download_raw_document(self, object_name: str) -> bytes:
+        """Retrieve raw file content from the data lake.
+
+        Args:
+            object_name: Storage key/path.
+
+        Returns:
+            Raw file bytes.
+        """
+        clean_object_name = object_name.lstrip("/")
+
+        if self.provider in ("minio", "s3"):
+            try:
+                from app.infrastructure.minio.client import download_file
+                return download_file(clean_object_name)
+            except Exception as exc:
+                logger.warning(
+                    "MinIO download failed (%s). Checking local lake storage: %s",
+                    exc, clean_object_name,
+                )
+                return self._download_local(clean_object_name)
+
+        return self._download_local(clean_object_name)
+
+    def delete_raw_document(self, object_name: str) -> None:
+        """Delete an object from the data lake.
+
+        Args:
+            object_name: Storage key/path.
+        """
+        clean_object_name = object_name.lstrip("/")
+
+        if self.provider in ("minio", "s3"):
+            try:
+                from app.infrastructure.minio.client import delete_file
+                delete_file(clean_object_name)
+                return
+            except Exception as exc:
+                logger.warning("MinIO delete failed (%s). Trying local deletion: %s", exc, clean_object_name)
+
+        self._delete_local(clean_object_name)
+
+    def object_exists(self, object_name: str) -> bool:
+        """Check whether an object exists in the lake."""
+        clean_object_name = object_name.lstrip("/")
+        if self.provider in ("minio", "s3"):
+            try:
+                from app.infrastructure.minio.client import get_minio_client
+                client = get_minio_client()
+                client.stat_object(self.settings.minio_bucket, clean_object_name)
+                return True
+            except Exception:
+                pass
+        target_path = self.local_root / clean_object_name
+        return target_path.is_file()
+
+    def _upload_local(self, data: bytes, object_name: str) -> str:
+        target_path = self.local_root / object_name
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(data)
+        logger.info("Stored file locally at %s (%d bytes)", target_path, len(data))
+        return object_name
+
+    def _download_local(self, object_name: str) -> bytes:
+        target_path = self.local_root / object_name
+        if not target_path.is_file():
+            raise FileNotFoundError(f"Local storage object not found: {target_path}")
+        return target_path.read_bytes()
+
+    def _delete_local(self, object_name: str) -> None:
+        target_path = self.local_root / object_name
+        if target_path.is_file():
+            target_path.unlink()
+            logger.info("Deleted local storage file: %s", target_path)
+
+
+@lru_cache(maxsize=1)
+def get_storage_service() -> StorageService:
+    """Return cached singleton instance of StorageService."""
+    return StorageService()
