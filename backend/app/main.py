@@ -80,6 +80,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from app.core.limiter import limiter
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Instrument FastAPI with OpenTelemetry
 FastAPIInstrumentor.instrument_app(app)
 

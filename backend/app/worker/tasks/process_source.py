@@ -27,21 +27,23 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+_sync_engine = None
+_SyncSessionLocal = None
+
+
 def _get_sync_session() -> Session:
-    """Create a synchronous SQLAlchemy session for use in Celery tasks.
+    """Create a synchronous SQLAlchemy session using a cached singleton engine."""
+    global _sync_engine, _SyncSessionLocal
+    if _sync_engine is None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
 
-    Celery tasks run in a synchronous context, so we need a sync engine
-    and session rather than the async ones used by FastAPI.
-    """
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
+        settings = get_settings()
+        sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        _sync_engine = create_engine(sync_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
+        _SyncSessionLocal = sessionmaker(bind=_sync_engine)
 
-    settings = get_settings()
-    # Convert async URL to sync URL
-    sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    SessionLocal = sessionmaker(bind=engine)
-    return SessionLocal()
+    return _SyncSessionLocal()
 
 
 def _update_source_status(

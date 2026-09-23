@@ -50,18 +50,33 @@ class TokenPayload(BaseModel):
 
 # ── Token Revocation ─────────────────────────────────────────────────────────
 
-# In-memory JTI blacklist. Will be replaced with Redis in a later phase.
+_REVOKED_JTI_PREFIX = "revoked_jti:"
 _revoked_jtis: set[str] = set()
 
 
-def revoke_token(jti: str) -> None:
-    """Add a JTI to the revocation blacklist."""
+def revoke_token(jti: str, expires_in_seconds: int | None = None) -> None:
+    """Add a JTI to the revocation blacklist (backed by Redis with in-memory fallback)."""
     _revoked_jtis.add(jti)
+    try:
+        from app.infrastructure.redis.client import get_sync_redis
+        client = get_sync_redis()
+        ttl = expires_in_seconds or (settings.jwt_refresh_token_expire_days * 86400)
+        client.setex(f"{_REVOKED_JTI_PREFIX}{jti}", ttl, "1")
+    except Exception:
+        # Gracefully keep in-memory set if Redis is offline
+        pass
 
 
 def is_token_revoked(jti: str) -> bool:
-    """Check whether a JTI has been revoked."""
-    return jti in _revoked_jtis
+    """Check whether a JTI has been revoked via Redis or local fallback."""
+    if jti in _revoked_jtis:
+        return True
+    try:
+        from app.infrastructure.redis.client import get_sync_redis
+        client = get_sync_redis()
+        return bool(client.exists(f"{_REVOKED_JTI_PREFIX}{jti}"))
+    except Exception:
+        return False
 
 
 # ── Token Creation ───────────────────────────────────────────────────────────

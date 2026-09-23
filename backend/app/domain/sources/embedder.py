@@ -36,16 +36,22 @@ def _get_model() -> Any:
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
-def embed_texts(texts: list[str], batch_size: int | None = None) -> list[list[float]]:
+def embed_texts(
+    texts: list[str],
+    batch_size: int | None = None,
+    is_query: bool = False,
+) -> list[list[float]]:
     """Generate embeddings for a list of texts using BGE-small-en-v1.5.
 
-    BGE models recommend prepending an instruction prefix for retrieval.
-    This function automatically adds the prefix.
+    BGE models recommend prepending an instruction prefix for query retrieval,
+    while passage/document chunks should be embedded without instruction prefix.
 
     Args:
         texts: List of text strings to embed.
-        batch_size: Number of texts to process per batch.  Defaults to the
+        batch_size: Number of texts to process per batch. Defaults to the
             configured ``embedding_batch_size`` (64).
+        is_query: Whether these texts are search queries (gets instruction prefix)
+            or document passages (no prefix).
 
     Returns:
         List of 384-dimensional embedding vectors (one per input text).
@@ -59,14 +65,17 @@ def embed_texts(texts: list[str], batch_size: int | None = None) -> list[list[fl
 
     model = _get_model()
 
-    # BGE instruction prefix for retrieval tasks
-    prefixed = [f"Represent this sentence: {t}" for t in texts]
+    # Apply instruction prefix ONLY to search queries per BGE specification
+    if is_query:
+        input_texts = [f"Represent this sentence: {t}" for t in texts]
+    else:
+        input_texts = texts
 
-    logger.info("Embedding %d texts in batches of %d", len(texts), batch_size)
+    logger.info("Embedding %d texts (is_query=%s) in batches of %d", len(texts), is_query, batch_size)
 
     start_time = time.perf_counter()
     embeddings = model.encode(
-        prefixed,
+        input_texts,
         batch_size=batch_size,
         show_progress_bar=False,
         normalize_embeddings=True,

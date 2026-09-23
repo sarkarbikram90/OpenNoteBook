@@ -60,7 +60,7 @@ jobs:
 
       - name: Type Check with TSC
         run: |
-          cd frontend && npm run type-check
+          cd frontend && npm run typecheck
 
       - name: Run Vitest
         run: |

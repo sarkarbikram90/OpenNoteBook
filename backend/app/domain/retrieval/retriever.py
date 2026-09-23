@@ -176,8 +176,8 @@ def _dense_search(
     settings = get_settings()
     client = get_qdrant_client()
 
-    # Embed the query
-    query_vectors = embed_texts([query])
+    # Embed the query with instruction prefix
+    query_vectors = embed_texts([query], is_query=True)
     if not query_vectors:
         return []
     query_vector = query_vectors[0]
@@ -218,7 +218,7 @@ def _bm25_search(
 ) -> list[dict[str, Any]]:
     """Stage 1b: BM25 keyword search from the Redis-cached index."""
     from app.domain.sources.bm25_index import _tokenise, load_bm25_index
-    from app.infrastructure.qdrant.client import get_all_chunks_for_notebook
+    from app.infrastructure.qdrant.client import get_chunks_by_ids
 
     bm25, chunk_ids = load_bm25_index(notebook_id)
     if bm25 is None or not chunk_ids:
@@ -228,26 +228,33 @@ def _bm25_search(
     tokenised_query = _tokenise(query)
     scores = bm25.get_scores(tokenised_query)
 
-    # Pair chunk IDs with scores and take top-k
-    scored_pairs = sorted(
-        zip(chunk_ids, scores),
-        key=lambda pair: pair[1],
-        reverse=True,
-    )[:top_k]
+    # Filter to positive scores and take top-k
+    scored_pairs = [
+        (cid, score)
+        for cid, score in zip(chunk_ids, scores)
+        if score > 0
+    ]
+    scored_pairs.sort(key=lambda pair: pair[1], reverse=True)
+    scored_pairs = scored_pairs[:top_k]
 
-    # We need the full payloads — fetch from Qdrant by chunk ID
-    all_chunks = get_all_chunks_for_notebook(notebook_id)
-    chunk_map = {c.get("chunk_id", ""): c for c in all_chunks}
+    if not scored_pairs:
+        return []
+
+    # Fetch only the matched top-k chunk payloads from Qdrant
+    top_chunk_ids = [cid for cid, _ in scored_pairs]
+    score_map = dict(scored_pairs)
+    payloads = get_chunks_by_ids(top_chunk_ids)
 
     results = []
-    for chunk_id, score in scored_pairs:
-        if score <= 0:
-            continue
-        payload = chunk_map.get(chunk_id)
-        if payload:
-            payload = dict(payload)  # Don't mutate the original
-            payload["_bm25_score"] = score
-            results.append(payload)
+    for payload in payloads:
+        cid = payload.get("chunk_id", "")
+        if cid in score_map:
+            p = dict(payload)
+            p["_bm25_score"] = score_map[cid]
+            results.append(p)
+
+    # Sort results by bm25 score descending
+    results.sort(key=lambda r: r["_bm25_score"], reverse=True)
 
     logger.debug("BM25 search returned %d results", len(results))
     return results

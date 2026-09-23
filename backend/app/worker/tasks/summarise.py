@@ -92,9 +92,7 @@ def generate_summary(self, source_id: str) -> dict:
 
         # Generate summary via Ollama
         prompt = _SUMMARY_PROMPT.format(text=combined_text)
-        response_text = asyncio.get_event_loop().run_until_complete(
-            _async_generate(prompt)
-        )
+        response_text = asyncio.run(_async_generate(prompt))
 
         # Parse JSON response
         summary_data = _parse_summary_response(response_text)
@@ -138,16 +136,11 @@ async def _async_generate(prompt: str) -> str:
 
 def _get_source_record(source_id: str) -> dict:
     """Fetch source record from the database."""
-    from sqlalchemy import create_engine, select as sa_select
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import select as sa_select
     from app.infrastructure.db.models import Source
+    from app.worker.tasks.process_source import _get_sync_session
 
-    settings = get_settings()
-    sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
+    session = _get_sync_session()
     try:
         result = session.execute(
             sa_select(Source).where(Source.id == uuid.UUID(source_id))
@@ -162,7 +155,6 @@ def _get_source_record(source_id: str) -> dict:
         }
     finally:
         session.close()
-        engine.dispose()
 
 
 def _parse_summary_response(response_text: str) -> dict:
@@ -209,15 +201,10 @@ def _parse_summary_response(response_text: str) -> dict:
 
 def _save_summary(source_id: str, summary_data: dict) -> None:
     """Save the generated summary to the database."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
     from app.infrastructure.db.models import SourceSummary
+    from app.worker.tasks.process_source import _get_sync_session
 
-    settings = get_settings()
-    sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-    engine = create_engine(sync_url, pool_pre_ping=True)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_sync_session()
 
     try:
         summary = SourceSummary(
@@ -232,4 +219,3 @@ def _save_summary(source_id: str, summary_data: dict) -> None:
         logger.info("Saved summary for source %s", source_id)
     finally:
         session.close()
-        engine.dispose()

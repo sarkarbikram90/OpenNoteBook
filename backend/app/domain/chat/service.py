@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.domain.chat.prompt import build_context, build_prompt, format_history
-from app.infrastructure.db.models import ChatSession, Message, Source
+from app.infrastructure.db.models import ChatSession, Message, Notebook, Source, UserSettings
 
 if TYPE_CHECKING:
     from app.domain.retrieval.retriever import RetrievedChunk
@@ -66,6 +66,7 @@ async def stream_answer(
     start_time = time.perf_counter()
 
     # Deferred imports to avoid loading heavy ML libs at module level
+    import asyncio
     from app.domain.retrieval.retriever import retrieve
     from app.infrastructure.ollama.client import stream_generate
 
@@ -82,9 +83,25 @@ async def stream_answer(
         )
         db.add(user_msg)
         await db.flush()
+        user_msg_id = user_msg.id
 
-        # ── 3. Retrieve relevant chunks ─────────────────────────────────
-        retrieval_result = retrieve(
+        # ── 3. Load user settings for dynamic inference params ──────────
+        user_settings = await _load_user_settings(db, notebook_id)
+        effective_model = user_settings.get("llm_model") or settings.ollama_model
+        effective_temp = float(user_settings.get("llm_temperature", settings.ollama_temperature))
+
+        # ── 4. Load conversation history (excluding the current question)
+        history_messages = await _load_history(
+            db, session.id, settings.max_history_messages, exclude_message_id=user_msg_id
+        )
+        history_str = format_history(history_messages)
+
+        # Commit initial database state
+        await db.commit()
+
+        # ── 5. Retrieve relevant chunks offloaded to threadpool ─────────
+        retrieval_result = await asyncio.to_thread(
+            retrieve,
             query=question,
             notebook_id=notebook_id,
             source_filter=source_filter,
@@ -94,13 +111,7 @@ async def stream_answer(
         # Resolve source names from DB for chunks that lack them
         await _enrich_source_names(db, chunks)
 
-        # ── 4. Load conversation history ────────────────────────────────
-        history_messages = await _load_history(
-            db, session.id, settings.max_history_messages
-        )
-        history_str = format_history(history_messages)
-
-        # ── 5. Build prompt ─────────────────────────────────────────────
+        # ── 6. Build prompt ─────────────────────────────────────────────
         context_str = build_context(chunks)
         prompt = build_prompt(context_str, history_str, question)
 
@@ -118,10 +129,10 @@ async def stream_answer(
         except Exception as e:
             logger.warning("Failed to record active sources metric: %s", e)
 
-        # ── 6. Stream tokens from Ollama ────────────────────────────────
+        # ── 7. Stream tokens from Ollama using configured model ─────────
         full_response = []
         llm_start_time = time.perf_counter()
-        async for token in stream_generate(prompt):
+        async for token in stream_generate(prompt, model=effective_model, temperature=effective_temp):
             full_response.append(token)
             yield _sse_event("token", {"token": token})
 
@@ -131,23 +142,23 @@ async def stream_answer(
         # Record LLM duration and token counts
         try:
             from app.core.metrics import llm_duration, llm_tokens_total
-            llm_duration.labels(model=settings.ollama_model).observe(llm_duration_val)
+            llm_duration.labels(model=effective_model).observe(llm_duration_val)
 
             # Estimate tokens: prompt (~4 chars/token), completion (actual token count returned)
             prompt_tokens_est = max(1, len(prompt) // 4)
             completion_tokens_est = len(full_response)
 
-            llm_tokens_total.labels(model=settings.ollama_model, type="prompt").inc(prompt_tokens_est)
-            llm_tokens_total.labels(model=settings.ollama_model, type="completion").inc(completion_tokens_est)
+            llm_tokens_total.labels(model=effective_model, type="prompt").inc(prompt_tokens_est)
+            llm_tokens_total.labels(model=effective_model, type="completion").inc(completion_tokens_est)
         except Exception as e:
             logger.warning("Failed to record LLM metrics: %s", e)
 
-        # ── 7. Emit citation events ─────────────────────────────────────
+        # ── 8. Emit citation events ─────────────────────────────────────
         citations = _extract_citations(response_text, chunks)
         for citation in citations:
             yield _sse_event("citation", citation)
 
-        # ── 8. Save assistant message ───────────────────────────────────
+        # ── 9. Save assistant message ───────────────────────────────────
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
         retrieval_meta = {
@@ -156,7 +167,7 @@ async def stream_answer(
             "fusion_latency_ms": retrieval_result.fusion_latency_ms,
             "rerank_latency_ms": retrieval_result.rerank_latency_ms,
             "retrieval_total_ms": retrieval_result.total_latency_ms,
-            "model": settings.ollama_model,
+            "model": effective_model,
             "total_latency_ms": latency_ms,
         }
 
@@ -168,9 +179,9 @@ async def stream_answer(
             retrieval_meta=retrieval_meta,
         )
         db.add(assistant_msg)
-        await db.flush()
+        await db.commit()
 
-        # ── 9. Emit done event ──────────────────────────────────────────
+        # ── 10. Emit done event ─────────────────────────────────────────
         yield _sse_event("done", {
             "message_id": str(assistant_msg.id),
             "session_id": actual_session_id,
@@ -223,6 +234,31 @@ async def _get_or_create_session(
     return session
 
 
+async def _load_user_settings(db: AsyncSession, notebook_id: str) -> dict[str, Any]:
+    """Load settings for the user who owns the notebook."""
+    try:
+        nb_res = await db.execute(
+            select(Notebook).where(Notebook.id == uuid.UUID(notebook_id))
+        )
+        nb = nb_res.scalar_one_or_none()
+        if not nb:
+            return {}
+        settings_res = await db.execute(
+            select(UserSettings).where(UserSettings.user_id == nb.user_id)
+        )
+        user_settings = settings_res.scalar_one_or_none()
+        if user_settings:
+            return {
+                "llm_model": user_settings.llm_model,
+                "llm_temperature": float(user_settings.llm_temperature),
+                "context_window": user_settings.context_window,
+                "max_chunks": user_settings.max_chunks,
+            }
+    except Exception as exc:
+        logger.warning("Could not load user settings for notebook %s: %s", notebook_id, exc)
+    return {}
+
+
 # ── History Loading ─────────────────────────────────────────────────────────
 
 
@@ -230,25 +266,25 @@ async def _load_history(
     db: AsyncSession,
     session_id: uuid.UUID,
     max_messages: int,
+    exclude_message_id: uuid.UUID | None = None,
 ) -> list[dict[str, str]]:
-    """Load the last N messages from a session for context.
+    """Load the last N messages from a session for context, excluding the current question.
 
     Returns a list of dicts with ``role`` and ``content`` keys,
     ordered chronologically (oldest first).
     """
-    result = await db.execute(
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at.desc())
-        .limit(max_messages)
-    )
+    query = select(Message).where(Message.session_id == session_id)
+    if exclude_message_id is not None:
+        query = query.where(Message.id != exclude_message_id)
+
+    query = query.order_by(Message.created_at.desc()).limit(max_messages)
+    result = await db.execute(query)
     messages = list(result.scalars().all())
     messages.reverse()  # Chronological order
 
     return [
         {"role": msg.role, "content": msg.content}
         for msg in messages
-        # Exclude the user message we just saved (it's in the question)
         if msg.content.strip()
     ]
 

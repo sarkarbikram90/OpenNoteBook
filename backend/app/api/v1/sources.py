@@ -20,6 +20,7 @@ from app.api.v1.schemas.sources import (
     SourceUploadResponse,
     SourceUploadURL,
 )
+from app.core.audit import record_audit_event
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.infrastructure.db.models import Notebook, Source
@@ -143,6 +144,15 @@ async def upload_file_source(
     db.add(source)
     await db.flush()
 
+    await record_audit_event(
+        db=db,
+        action="source.upload",
+        resource_type="source",
+        resource_id=str(source_id),
+        user_id=user.id,
+        details={"name": file.filename, "source_type": source_type, "notebook_id": str(notebook_id)},
+    )
+
     # Dispatch Celery task
     from app.worker.tasks.process_source import process_source
     process_source.delay(str(source_id))
@@ -181,6 +191,15 @@ async def upload_url_source(
     )
     db.add(source)
     await db.flush()
+
+    await record_audit_event(
+        db=db,
+        action="source.upload_url",
+        resource_type="source",
+        resource_id=str(source_id),
+        user_id=user.id,
+        details={"name": name, "url": str(body.url), "notebook_id": str(notebook_id)},
+    )
 
     # Dispatch Celery task
     from app.worker.tasks.process_source import process_source
@@ -290,6 +309,15 @@ async def delete_source(
             delete_file(source.storage_path)
         except Exception:
             pass
+
+    await record_audit_event(
+        db=db,
+        action="source.delete",
+        resource_type="source",
+        resource_id=str(source_id),
+        user_id=user.id,
+        details={"name": source.name, "notebook_id": str(notebook_id)},
+    )
 
     # Delete from database
     await db.execute(

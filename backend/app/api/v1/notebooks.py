@@ -16,6 +16,7 @@ from app.api.v1.schemas.notebooks import (
     NotebookResponse,
     NotebookUpdate,
 )
+from app.core.audit import record_audit_event
 from app.core.deps import CurrentUser, DbSession
 from app.infrastructure.db.models import Notebook, Source
 
@@ -82,6 +83,16 @@ async def create_notebook(
     db.add(notebook)
     await db.flush()
     await db.refresh(notebook)
+
+    await record_audit_event(
+        db=db,
+        action="notebook.create",
+        resource_type="notebook",
+        resource_id=str(notebook.id),
+        user_id=user.id,
+        details={"name": notebook.name},
+    )
+
     return await _notebook_to_response(notebook, db)
 
 
@@ -147,6 +158,16 @@ async def update_notebook(
 
     await db.flush()
     await db.refresh(notebook)
+
+    await record_audit_event(
+        db=db,
+        action="notebook.update",
+        resource_type="notebook",
+        resource_id=str(notebook.id),
+        user_id=user.id,
+        details=update_data,
+    )
+
     return await _notebook_to_response(notebook, db)
 
 
@@ -180,6 +201,15 @@ async def delete_notebook(
         redis_client.delete(f"bm25_docs:{notebook_id}")
     except Exception:
         pass
+
+    await record_audit_event(
+        db=db,
+        action="notebook.delete",
+        resource_type="notebook",
+        resource_id=str(notebook_id),
+        user_id=user.id,
+        details={"name": notebook.name},
+    )
 
     await db.execute(
         delete(Notebook).where(Notebook.id == notebook_id)

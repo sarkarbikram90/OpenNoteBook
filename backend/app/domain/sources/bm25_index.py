@@ -7,8 +7,8 @@ added or removed from the notebook.
 
 from __future__ import annotations
 
+import json
 import logging
-import pickle
 from typing import Any
 
 from rank_bm25 import BM25Okapi
@@ -19,8 +19,8 @@ from app.infrastructure.redis.client import get_sync_redis
 
 logger = logging.getLogger(__name__)
 
-# Redis key pattern for BM25 indices
-_BM25_KEY_PREFIX = "bm25:"
+# Redis key pattern for BM25 corpus
+_BM25_KEY_PREFIX = "bm25_corpus:"
 # Redis key for the chunk ID mapping
 _BM25_DOCS_KEY_PREFIX = "bm25_docs:"
 
@@ -29,8 +29,7 @@ def build_bm25_index(notebook_id: str) -> int:
     """Build (or rebuild) the BM25 index for a notebook.
 
     Fetches all chunk payloads from Qdrant, tokenises them, builds a
-    ``BM25Okapi`` index, and serialises both the index and the chunk ID
-    mapping to Redis.
+    ``BM25Okapi`` index, and serialises the corpus to Redis using safe JSON.
 
     Args:
         notebook_id: UUID of the notebook to index.
@@ -48,18 +47,15 @@ def build_bm25_index(notebook_id: str) -> int:
     tokenised_corpus = [_tokenise(chunk.get("text", "")) for chunk in chunks]
     chunk_ids = [chunk.get("chunk_id", "") for chunk in chunks]
 
-    # Build the BM25 index
-    bm25 = BM25Okapi(tokenised_corpus)
-
-    # Serialise to Redis
+    # Serialise corpus and chunk_ids safely via JSON
     redis_client = get_sync_redis()
     redis_client.set(
         f"{_BM25_KEY_PREFIX}{notebook_id}",
-        pickle.dumps(bm25),
+        json.dumps(tokenised_corpus),
     )
     redis_client.set(
         f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}",
-        pickle.dumps(chunk_ids),
+        json.dumps(chunk_ids),
     )
 
     logger.info(
@@ -71,7 +67,7 @@ def build_bm25_index(notebook_id: str) -> int:
 
 
 def load_bm25_index(notebook_id: str) -> tuple[BM25Okapi | None, list[str]]:
-    """Load a previously built BM25 index from Redis.
+    """Load a previously built BM25 index from Redis safely.
 
     Args:
         notebook_id: UUID of the notebook.
@@ -81,16 +77,20 @@ def load_bm25_index(notebook_id: str) -> tuple[BM25Okapi | None, list[str]]:
     """
     redis_client = get_sync_redis()
 
-    bm25_data = redis_client.get(f"{_BM25_KEY_PREFIX}{notebook_id}")
+    corpus_data = redis_client.get(f"{_BM25_KEY_PREFIX}{notebook_id}")
     docs_data = redis_client.get(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
 
-    if bm25_data is None or docs_data is None:
+    if corpus_data is None or docs_data is None:
         return None, []
 
-    bm25 = pickle.loads(bm25_data)  # noqa: S301
-    chunk_ids = pickle.loads(docs_data)  # noqa: S301
-
-    return bm25, chunk_ids
+    try:
+        tokenised_corpus = json.loads(corpus_data)
+        chunk_ids = json.loads(docs_data)
+        bm25 = BM25Okapi(tokenised_corpus)
+        return bm25, chunk_ids
+    except Exception as exc:
+        logger.warning("Failed to decode BM25 index for notebook %s: %s", notebook_id, exc)
+        return None, []
 
 
 def _clear_index(notebook_id: str) -> None:

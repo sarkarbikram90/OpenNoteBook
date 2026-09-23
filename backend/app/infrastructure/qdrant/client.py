@@ -196,3 +196,31 @@ def get_all_chunks_for_notebook(notebook_id: str) -> list[dict[str, Any]]:
         offset = next_offset
 
     return all_payloads
+
+
+def get_chunks_by_ids(chunk_ids: list[str]) -> list[dict[str, Any]]:
+    """Retrieve specific chunk payloads from Qdrant by their point IDs.
+
+    Args:
+        chunk_ids: List of chunk ID strings (UUIDs).
+
+    Returns:
+        List of payload dicts for the matching chunks.
+    """
+    if not chunk_ids:
+        return []
+
+    settings = get_settings()
+    client = get_qdrant_client()
+
+    try:
+        points = client.retrieve(
+            collection_name=settings.qdrant_collection,
+            ids=chunk_ids,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return [p.payload for p in points if p.payload]
+    except Exception as exc:
+        logger.warning("Failed to retrieve chunks by IDs from Qdrant: %s", exc)
+        return []

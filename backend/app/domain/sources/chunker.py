@@ -107,8 +107,8 @@ def chunk_document(
     # Apply overlap between consecutive chunks
     chunks = _apply_overlap(chunks)
 
-    # Filter out chunks below minimum size
-    chunks = [c for c in chunks if c.token_count >= MIN_TOKENS]
+    # Consolidate small chunks so short documents or trailing sections are never lost
+    chunks = _consolidate_small_chunks(chunks)
 
     logger.info(
         "Chunked document into %d chunks (source=%s)",
@@ -119,6 +119,28 @@ def chunk_document(
 
 
 # ── Internal Helpers ────────────────────────────────────────────────────────
+
+
+def _consolidate_small_chunks(chunks: list[Chunk]) -> list[Chunk]:
+    """Ensure small chunks are not dropped, merging with adjacent chunks or retaining solitary chunks."""
+    if not chunks:
+        return []
+    if len(chunks) == 1:
+        return chunks if chunks[0].text.strip() else []
+
+    consolidated: list[Chunk] = []
+    for c in chunks:
+        if not c.text.strip():
+            continue
+        if c.token_count < MIN_TOKENS and consolidated:
+            prev = consolidated[-1]
+            prev.text = f"{prev.text}\n\n{c.text}"
+            prev.token_count = _count_tokens(prev.text)
+            prev.end_char = max(prev.end_char, c.end_char)
+        else:
+            consolidated.append(c)
+
+    return consolidated if consolidated else [c for c in chunks if c.text.strip()]
 
 
 def _count_tokens(text: str) -> int:

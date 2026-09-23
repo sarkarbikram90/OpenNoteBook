@@ -5,7 +5,7 @@ Provides user registration, login, token refresh, and logout.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from jose import JWTError
 from sqlalchemy import select
 
@@ -16,6 +16,7 @@ from app.api.v1.schemas.auth import (
     UserRegisterRequest,
     UserResponse,
 )
+from app.core.audit import record_audit_event
 from app.core.auth import (
     create_access_token,
     create_refresh_token,
@@ -25,6 +26,7 @@ from app.core.auth import (
     verify_password,
 )
 from app.core.deps import CurrentUser, DbSession
+from app.core.limiter import limiter
 from app.infrastructure.db.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -39,12 +41,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
         409: {"description": "Email already registered"},
     },
 )
-async def register(body: UserRegisterRequest, db: DbSession) -> TokenResponse:
+@limiter.limit("20/minute")
+async def register(request: Request, body: UserRegisterRequest, db: DbSession) -> TokenResponse:
     """Create a new user account and return JWT tokens.
 
     - Validates that the email is not already taken.
     - Hashes the password with bcrypt (cost factor 12).
     - Returns an access + refresh token pair.
+    - Records audit log event.
     """
     # Check for existing user
     result = await db.execute(select(User).where(User.email == body.email))
@@ -62,8 +66,19 @@ async def register(body: UserRegisterRequest, db: DbSession) -> TokenResponse:
     db.add(user)
     await db.flush()  # Populate user.id before commit
 
-    # Generate tokens
     user_id = str(user.id)
+
+    # Record audit log
+    await record_audit_event(
+        db=db,
+        action="user.register",
+        resource_type="user",
+        resource_id=user_id,
+        user_id=user.id,
+        details={"email": body.email},
+    )
+
+    # Generate tokens
     return TokenResponse(
         access_token=create_access_token(user_id),
         refresh_token=create_refresh_token(user_id),
@@ -78,11 +93,13 @@ async def register(body: UserRegisterRequest, db: DbSession) -> TokenResponse:
         401: {"description": "Invalid credentials"},
     },
 )
-async def login(body: UserLoginRequest, db: DbSession) -> TokenResponse:
+@limiter.limit("30/minute")
+async def login(request: Request, body: UserLoginRequest, db: DbSession) -> TokenResponse:
     """Authenticate a user and return JWT tokens.
 
     - Verifies email exists and password matches.
     - Returns an access + refresh token pair.
+    - Records audit log event.
     """
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
@@ -100,6 +117,17 @@ async def login(body: UserLoginRequest, db: DbSession) -> TokenResponse:
         )
 
     user_id = str(user.id)
+
+    # Record audit log
+    await record_audit_event(
+        db=db,
+        action="user.login",
+        resource_type="user",
+        resource_id=user_id,
+        user_id=user.id,
+        details={"email": body.email},
+    )
+
     return TokenResponse(
         access_token=create_access_token(user_id),
         refresh_token=create_refresh_token(user_id),
@@ -120,6 +148,7 @@ async def refresh(body: TokenRefreshRequest, db: DbSession) -> TokenResponse:
     - Validates the refresh token.
     - Revokes the old refresh token.
     - Issues a fresh pair.
+    - Records audit log event.
     """
     try:
         payload = decode_token(body.refresh_token)
@@ -148,6 +177,16 @@ async def refresh(body: TokenRefreshRequest, db: DbSession) -> TokenResponse:
     # Revoke old refresh token and issue new pair
     revoke_token(payload.jti)
     user_id = str(user.id)
+
+    # Record audit log
+    await record_audit_event(
+        db=db,
+        action="user.refresh_token",
+        resource_type="user",
+        resource_id=user_id,
+        user_id=user.id,
+    )
+
     return TokenResponse(
         access_token=create_access_token(user_id),
         refresh_token=create_refresh_token(user_id),
@@ -159,19 +198,27 @@ async def refresh(body: TokenRefreshRequest, db: DbSession) -> TokenResponse:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Logout (revoke current token)",
 )
-async def logout(current_user: CurrentUser) -> None:
-    """Revoke the current access token by adding its JTI to the blacklist.
+async def logout(
+    current_user: CurrentUser,
+    db: DbSession,
+    authorization: str | None = Header(None),
+) -> None:
+    """Revoke the current access token by adding its JTI to the blacklist."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+        try:
+            payload = decode_token(token)
+            revoke_token(payload.jti)
+        except Exception:
+            pass
 
-    Note: This endpoint requires a valid access token (Bearer auth).
-    The token is extracted from the ``Authorization`` header by the
-    ``get_current_user`` dependency.
-    """
-    # The current_user dependency already validated the token.
-    # We need the raw token to revoke it — re-extract from the dependency.
-    # For now, this is a no-op placeholder since we'd need the JTI.
-    # In practice, the client should discard tokens on logout.
-    # A full implementation would use middleware to capture the JTI.
-    pass
+    await record_audit_event(
+        db=db,
+        action="user.logout",
+        resource_type="user",
+        resource_id=str(current_user.id),
+        user_id=current_user.id,
+    )
 
 
 @router.get(

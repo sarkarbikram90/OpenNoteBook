@@ -50,9 +50,92 @@ class User(Base):
     audit_logs: Mapped[list[AuditLog]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="noload"
     )
+    workspace_memberships: Mapped[list[WorkspaceMember]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email}>"
+
+
+# ── Multi-Tenancy & RBAC ───────────────────────────────────────────────────
+
+
+class Organization(Base):
+    """Enterprise tenant organization (e.g. Acme Corp)."""
+
+    __tablename__ = "organizations"
+
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
+
+    # Relationships
+    workspaces: Mapped[list[Workspace]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Organization id={self.id} name={self.name!r} slug={self.slug!r}>"
+
+
+class Workspace(Base):
+    """Department, team, or project boundary within an organization."""
+
+    __tablename__ = "workspaces"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Relationships
+    organization: Mapped[Organization] = relationship(back_populates="workspaces")
+    members: Mapped[list[WorkspaceMember]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan", lazy="selectin"
+    )
+    notebooks: Mapped[list[Notebook]] = relationship(
+        back_populates="workspace", lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Workspace id={self.id} name={self.name!r}>"
+
+
+class WorkspaceMember(Base):
+    """Membership and Role-Based Access Control (RBAC) in a workspace."""
+
+    __tablename__ = "workspace_members"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('owner', 'admin', 'member', 'viewer')",
+            name="ck_workspace_members_role",
+        ),
+        Index("ix_workspace_members_workspace_user", "workspace_id", "user_id", unique=True),
+    )
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(Text, server_default="member", nullable=False)
+
+    # Relationships
+    workspace: Mapped[Workspace] = relationship(back_populates="members")
+    user: Mapped[User] = relationship(back_populates="workspace_memberships")
+
+    def __repr__(self) -> str:
+        return f"<WorkspaceMember workspace_id={self.workspace_id} user_id={self.user_id} role={self.role}>"
 
 
 # ── Notebooks ────────────────────────────────────────────────────────────────
@@ -69,11 +152,18 @@ class Notebook(Base):
         nullable=False,
         index=True,
     )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     user: Mapped[User] = relationship(back_populates="notebooks")
+    workspace: Mapped[Workspace | None] = relationship(back_populates="notebooks")
     sources: Mapped[list[Source]] = relationship(
         back_populates="notebook", cascade="all, delete-orphan", lazy="selectin"
     )
