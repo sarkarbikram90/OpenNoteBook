@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────
+# OpenNotebook — pre-commit hooks
+# Install:  pip install pre-commit && pre-commit install
+# Run all:  pre-commit run --all-files
+# ─────────────────────────────────────────────
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/app/.*\.py$
+      - id: ruff-format
+        files: ^backend/app/.*\.py$
+
+  - repo: local
+    hooks:
+      - id: mypy-backend
+        name: mypy (backend)
+        entry: mypy --config-file backend/pyproject.toml backend/app
+        language: system
+        pass_filenames: false
+        files: ^backend/app/.*\.py$

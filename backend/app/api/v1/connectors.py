@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession
 from app.core.audit import record_audit_event
 from app.domain.connectors.web import WebConnector
 from app.domain.connectors.s3_connector import S3BucketConnector

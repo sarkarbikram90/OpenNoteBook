@@ -23,7 +23,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
     volumes:
       - ./backend:/app
     depends_on:
@@ -56,7 +56,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
       - MINIO_ENDPOINT=minio:9000
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
     volumes:
@@ -234,6 +234,29 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+    restart: unless-stopped
+    networks:
+      - opennotebook
+
+  # Deterministic LLM stub for offline dev and tests.
+  # Enable with:  OLLAMA_BASE_URL=http://mock-llm:11434 docker compose --profile mock up -d
+  mock-llm:
+    build:
+      context: ./tools/mock_llm
+      dockerfile: Dockerfile
+    container_name: opennotebook-mock-llm
+    profiles: ["mock"]
+    ports:
+      - "${MOCK_LLM_PORT:-11435}:11434"
+    environment:
+      - MOCK_LLM_MODEL=${MOCK_LLM_MODEL:-mock-llama3}
+      - MOCK_LLM_DELAY_MS=${MOCK_LLM_DELAY_MS:-0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:11434/').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
     restart: unless-stopped
     networks:
       - opennotebook
