@@ -325,6 +325,39 @@ class Message(Base):
         return f"<Message id={self.id} role={self.role} session_id={self.session_id}>"
 
 
+# ── Message Feedback ─────────────────────────────────────────────────────────
+
+
+class MessageFeedback(Base):
+    """User feedback (thumbs up/down) on an assistant message."""
+
+    __tablename__ = "message_feedback"
+    __table_args__ = (
+        CheckConstraint(
+            "rating IN ('up', 'down')",
+            name="ck_message_feedback_rating",
+        ),
+        Index("ix_message_feedback_message_id", "message_id"),
+    )
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    rating: Mapped[str] = mapped_column(Text, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<MessageFeedback message_id={self.message_id} rating={self.rating}>"
+
+
 # ── Settings ─────────────────────────────────────────────────────────────────
 
 

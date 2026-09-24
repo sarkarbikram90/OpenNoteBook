@@ -149,3 +149,27 @@ class SearchResponse(BaseModel):
     results: list[SearchChunkResult]
     total: int
     latency_ms: float
+
+
+# ── Feedback Schemas ────────────────────────────────────────────────────────
+
+
+class FeedbackRequest(BaseModel):
+    """Request body for submitting answer feedback."""
+
+    model_config = ConfigDict(strict=True)
+
+    message_id: uuid.UUID = Field(..., description="Assistant message being rated")
+    rating: Literal["up", "down"] = Field(..., description="Thumbs up or down")
+    comment: str | None = Field(None, max_length=2000, description="Optional comment")
+
+
+class FeedbackResponse(BaseModel):
+    """Response for a recorded feedback entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    message_id: uuid.UUID
+    rating: str
+    created_at: datetime

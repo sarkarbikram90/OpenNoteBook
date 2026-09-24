@@ -72,10 +72,7 @@ def generate_summary(self, source_id: str) -> dict:
 
         # Get all chunks for the notebook, filter to this source
         all_chunks = get_all_chunks_for_notebook(notebook_id)
-        source_chunks = [
-            c for c in all_chunks
-            if c.get("source_id") == source_id
-        ]
+        source_chunks = [c for c in all_chunks if c.get("source_id") == source_id]
 
         if not source_chunks:
             logger.warning("No chunks found for source %s", source_id)
@@ -116,6 +113,7 @@ def generate_summary(self, source_id: str) -> dict:
 
         # Log to DLQ
         from app.worker.dlq import handle_dlq
+
         handle_dlq(source_id, str(exc), traceback.format_exc())
 
         return {
@@ -129,9 +127,10 @@ def generate_summary(self, source_id: str) -> dict:
 
 
 async def _async_generate(prompt: str) -> str:
-    """Run the Ollama generate call asynchronously."""
-    from app.infrastructure.ollama.client import generate
-    return await generate(prompt)
+    """Generate text via the configured LLM provider."""
+    from app.infrastructure.llm import get_llm_provider
+
+    return await get_llm_provider().generate(prompt)
 
 
 def _get_source_record(source_id: str) -> dict:
@@ -142,9 +141,7 @@ def _get_source_record(source_id: str) -> dict:
 
     session = _get_sync_session()
     try:
-        result = session.execute(
-            sa_select(Source).where(Source.id == uuid.UUID(source_id))
-        )
+        result = session.execute(sa_select(Source).where(Source.id == uuid.UUID(source_id)))
         source = result.scalar_one_or_none()
         if source is None:
             raise ValueError(f"Source not found: {source_id}")
@@ -173,6 +170,7 @@ def _parse_summary_response(response_text: str) -> dict:
 
     # Try extracting from code fences
     import re
+
     json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if json_match:
         try:
@@ -185,7 +183,7 @@ def _parse_summary_response(response_text: str) -> dict:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
 

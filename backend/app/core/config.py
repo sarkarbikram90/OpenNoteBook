@@ -7,9 +7,10 @@ See .env.example for the full list of supported variables.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -40,7 +41,12 @@ class Settings(BaseSettings):
     bcrypt_cost_factor: int = 12
 
     # ── CORS ─────────────────────────────────────
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # NoDecode: accept a plain comma-separated string (as in .env) instead of
+    # requiring a JSON array; the validator below splits it.
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -87,6 +93,19 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3:8b-instruct"
     ollama_temperature: float = 0.1
+
+    # ── LLM Provider (pluggable) ─────────────────
+    llm_provider: str = "ollama"  # ollama | openai | anthropic | gemini
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_model: str = "claude-3-5-sonnet-latest"
+    anthropic_max_tokens: int = 1024
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+    gemini_model: str = "gemini-1.5-flash"
 
     # ── Reranker ─────────────────────────────────
     reranker_model: str = "BAAI/bge-reranker-base"

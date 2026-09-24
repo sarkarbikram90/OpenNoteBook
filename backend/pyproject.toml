@@ -156,6 +156,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "ARG001", "ARG002"]
+# Base provider defines the interface; argument "unused" is intentional.
+"app/infrastructure/llm/base.py" = ["ARG002"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

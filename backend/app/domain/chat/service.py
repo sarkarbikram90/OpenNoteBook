@@ -73,7 +73,7 @@ async def stream_answer(
     # Deferred imports to avoid loading heavy ML libs at module level
     import asyncio
     from app.domain.retrieval.retriever import retrieve, UserSecurityContext
-    from app.infrastructure.ollama.client import stream_generate
+    from app.infrastructure.llm import get_llm_provider
     from app.domain.chat.orchestrator import GroundedPromptBuilder
 
     try:
@@ -145,11 +145,16 @@ async def stream_answer(
         except Exception as e:
             logger.warning("Failed to record active sources metric: %s", e)
 
-        # ── 7. Stream tokens from Ollama using configured model ─────────
+        # ── 7. Stream tokens from the configured LLM provider ───────────
+        provider = get_llm_provider()
+        # Only forward the per-user model name to Ollama; cloud providers use
+        # their own configured model.
+        call_model = effective_model if provider.name == "ollama" else None
+
         full_response = []
         llm_start_time = time.perf_counter()
-        async for token in stream_generate(
-            prompt, model=effective_model, temperature=effective_temp
+        async for token in provider.stream_generate(
+            prompt, model=call_model, temperature=effective_temp
         ):
             full_response.append(token)
             yield _sse_event("token", {"token": token})

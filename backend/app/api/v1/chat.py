@@ -26,13 +26,16 @@ from app.api.v1.schemas.chat import (
     ChatSessionListResponse,
     ChatSessionResponse,
     ExportRequest,
+    FeedbackRequest,
+    FeedbackResponse,
     MessageListResponse,
     MessageResponse,
 )
+from app.core.audit import record_audit_event
 from app.core.deps import CurrentUser, DbSession
 from app.domain.chat.service import stream_answer
 from app.domain.governance.access import authorize_notebook_access
-from app.infrastructure.db.models import ChatSession, Message, Notebook
+from app.infrastructure.db.models import ChatSession, Message, MessageFeedback, Notebook
 
 router = APIRouter(tags=["chat"])
 
@@ -259,6 +262,68 @@ async def export_session(
         return _export_markdown(session, messages)
     else:
         return _export_pdf(session, messages)
+
+
+# ── Feedback ────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/feedback",
+    response_model=FeedbackResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit feedback for an assistant message",
+    responses={404: {"description": "Message not found or not accessible"}},
+)
+async def submit_feedback(
+    body: FeedbackRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> FeedbackResponse:
+    """Record thumbs up/down feedback for an assistant message."""
+    msg_result = await db.execute(select(Message).where(Message.id == body.message_id))
+    message = msg_result.scalar_one_or_none()
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
+        )
+
+    session_result = await db.execute(
+        select(ChatSession).where(ChatSession.id == message.session_id)
+    )
+    session = session_result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
+        )
+
+    # Caller must have access to the notebook that owns the message.
+    access = await authorize_notebook_access(db, session.notebook_id, user.id)
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
+        )
+
+    feedback = MessageFeedback(
+        message_id=message.id,
+        user_id=user.id,
+        rating=body.rating,
+        comment=body.comment,
+    )
+    db.add(feedback)
+    await db.flush()
+
+    await record_audit_event(
+        db=db,
+        action="feedback.submit",
+        resource_type="message",
+        resource_id=str(message.id),
+        user_id=user.id,
+        details={"rating": body.rating},
+    )
+    await db.commit()
+    await db.refresh(feedback)
+
+    return FeedbackResponse.model_validate(feedback)
 
 
 # ── Summarisation Trigger ───────────────────────────────────────────────────
