@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.audit import record_audit_event
+from app.domain.connectors.confluence import ConfluenceConnector
 from app.domain.connectors.local_fileshare import LocalFileShareConnector
 from app.domain.connectors.sql_connector import SqlConnector
 from app.domain.connectors.web import WebConnector
@@ -38,7 +39,7 @@ class ConnectorCreateRequest(BaseModel):
     workspace_id: uuid.UUID
     notebook_id: uuid.UUID | None = None
     name: str = Field(..., min_length=1, max_length=120)
-    connector_type: str = Field(..., description="'web', 's3', 'fileshare', or 'sql'")
+    connector_type: str = Field(..., description="'web', 's3', 'fileshare', 'sql', or 'confluence'")
     config_json: dict[str, Any] = Field(default_factory=dict)
     schedule_cron: str | None = None
 
@@ -189,6 +190,8 @@ async def test_connector(
             LocalFileShareConnector(connector.config_json).test_connection()
         elif connector.connector_type == "sql":
             SqlConnector(connector.config_json).test_connection()
+        elif connector.connector_type == "confluence":
+            ConfluenceConnector(connector.config_json).test_connection()
         else:
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
@@ -239,6 +242,8 @@ async def sync_connector(
         conn = LocalFileShareConnector(connector.config_json)
     elif connector.connector_type == "sql":
         conn = SqlConnector(connector.config_json)
+    elif connector.connector_type == "confluence":
+        conn = ConfluenceConnector(connector.config_json)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
 
