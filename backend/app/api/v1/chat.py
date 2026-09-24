@@ -31,6 +31,7 @@ from app.api.v1.schemas.chat import (
 )
 from app.core.deps import CurrentUser, DbSession
 from app.domain.chat.service import stream_answer
+from app.domain.governance.access import authorize_notebook_access
 from app.infrastructure.db.models import ChatSession, Message, Notebook
 
 router = APIRouter(tags=["chat"])
@@ -61,24 +62,16 @@ async def chat(
     - ``done``: Generation complete with metadata.
     - ``error``: An error occurred during generation.
     """
-    # Verify notebook ownership
-    result = await db.execute(
-        select(Notebook).where(
-            Notebook.id == notebook_id,
-            Notebook.user_id == user.id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
+    # Verify notebook access and resolve the caller's security context (ACL/sensitivity).
+    access = await authorize_notebook_access(db, notebook_id, user.id)
+    if access is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Notebook not found",
         )
+    _notebook, security_context = access
 
-    source_filter = (
-        [str(sid) for sid in body.source_filter]
-        if body.source_filter
-        else None
-    )
+    source_filter = [str(sid) for sid in body.source_filter] if body.source_filter else None
 
     event_stream = stream_answer(
         notebook_id=str(notebook_id),
@@ -87,6 +80,7 @@ async def chat(
         session_id=str(body.session_id) if body.session_id else None,
         source_filter=source_filter,
         user_id=str(user.id),
+        security_context=security_context,
     )
 
     return StreamingResponse(
@@ -196,9 +190,7 @@ async def list_messages(
     await _get_user_session(session_id, user.id, db)
 
     result = await db.execute(
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at.asc())
+        select(Message).where(Message.session_id == session_id).order_by(Message.created_at.asc())
     )
     messages = list(result.scalars().all())
 
@@ -259,9 +251,7 @@ async def export_session(
 
     # Load messages
     result = await db.execute(
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(Message.created_at.asc())
+        select(Message).where(Message.session_id == session_id).order_by(Message.created_at.asc())
     )
     messages = list(result.scalars().all())
 
@@ -344,9 +334,7 @@ async def _get_user_session(
     db: DbSession,
 ) -> ChatSession:
     """Fetch a session, verifying the user owns the parent notebook."""
-    result = await db.execute(
-        select(ChatSession).where(ChatSession.id == session_id)
-    )
+    result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
     session = result.scalar_one_or_none()
     if session is None:
         raise HTTPException(

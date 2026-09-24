@@ -26,7 +26,7 @@ from app.domain.chat.prompt import build_context, build_prompt, format_history
 from app.infrastructure.db.models import ChatSession, Message, Notebook, Source, UserSettings
 
 if TYPE_CHECKING:
-    from app.domain.retrieval.retriever import RetrievedChunk
+    from app.domain.retrieval.retriever import RetrievedChunk, UserSecurityContext
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ async def stream_answer(
     source_filter: list[str] | None = None,
     user_id: str | None = None,
     user_roles: list[str] | None = None,
+    security_context: UserSecurityContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream an RAG answer as SSE-formatted event strings.
 
@@ -104,15 +105,11 @@ async def stream_answer(
         await db.commit()
 
         # ── 5. Build Security Context & Retrieve relevant chunks ────────
-        sec_ctx = None
-        if user_id:
-            roles = user_roles or ["viewer"]
-            max_sens = "restricted" if any(r.lower() in ("owner", "admin") for r in roles) else "internal"
-            sec_ctx = UserSecurityContext(
-                user_id=user_id,
-                roles=roles,
-                max_sensitivity=max_sens,
-            )
+        sec_ctx = security_context
+        if sec_ctx is None and user_id:
+            from app.domain.governance.access import build_security_context
+
+            sec_ctx = build_security_context(user_id, user_roles or ["viewer"])
 
         retrieval_result = await asyncio.to_thread(
             retrieve,
@@ -136,6 +133,7 @@ async def stream_answer(
         # Record active sources count in Prometheus
         try:
             from app.core.metrics import active_sources
+
             source_count_res = await db.execute(
                 select(Source).where(
                     Source.notebook_id == uuid.UUID(notebook_id),
@@ -150,7 +148,9 @@ async def stream_answer(
         # ── 7. Stream tokens from Ollama using configured model ─────────
         full_response = []
         llm_start_time = time.perf_counter()
-        async for token in stream_generate(prompt, model=effective_model, temperature=effective_temp):
+        async for token in stream_generate(
+            prompt, model=effective_model, temperature=effective_temp
+        ):
             full_response.append(token)
             yield _sse_event("token", {"token": token})
 
@@ -160,6 +160,7 @@ async def stream_answer(
         # Record LLM duration and token counts
         try:
             from app.core.metrics import llm_duration, llm_tokens_total
+
             llm_duration.labels(model=effective_model).observe(llm_duration_val)
 
             # Estimate tokens: prompt (~4 chars/token), completion (actual token count returned)
@@ -167,7 +168,9 @@ async def stream_answer(
             completion_tokens_est = len(full_response)
 
             llm_tokens_total.labels(model=effective_model, type="prompt").inc(prompt_tokens_est)
-            llm_tokens_total.labels(model=effective_model, type="completion").inc(completion_tokens_est)
+            llm_tokens_total.labels(model=effective_model, type="completion").inc(
+                completion_tokens_est
+            )
         except Exception as e:
             logger.warning("Failed to record LLM metrics: %s", e)
 
@@ -211,23 +214,32 @@ async def stream_answer(
         await db.commit()
 
         # ── 10. Emit done event ─────────────────────────────────────────
-        yield _sse_event("done", {
-            "message_id": str(assistant_msg.id),
-            "session_id": actual_session_id,
-            "latency_ms": latency_ms,
-        })
+        yield _sse_event(
+            "done",
+            {
+                "message_id": str(assistant_msg.id),
+                "session_id": actual_session_id,
+                "latency_ms": latency_ms,
+            },
+        )
 
         logger.info(
             "Chat complete: notebook=%s session=%s latency=%dms tokens=%d",
-            notebook_id, actual_session_id, latency_ms, len(full_response),
+            notebook_id,
+            actual_session_id,
+            latency_ms,
+            len(full_response),
         )
 
     except Exception as exc:
         logger.error("Chat stream error: %s", exc, exc_info=True)
-        yield _sse_event("error", {
-            "code": "generation_error",
-            "message": str(exc),
-        })
+        yield _sse_event(
+            "error",
+            {
+                "code": "generation_error",
+                "message": str(exc),
+            },
+        )
 
 
 # ── Session Management ──────────────────────────────────────────────────────
@@ -266,9 +278,7 @@ async def _get_or_create_session(
 async def _load_user_settings(db: AsyncSession, notebook_id: str) -> dict[str, Any]:
     """Load settings for the user who owns the notebook."""
     try:
-        nb_res = await db.execute(
-            select(Notebook).where(Notebook.id == uuid.UUID(notebook_id))
-        )
+        nb_res = await db.execute(select(Notebook).where(Notebook.id == uuid.UUID(notebook_id)))
         nb = nb_res.scalar_one_or_none()
         if not nb:
             return {}
@@ -311,11 +321,7 @@ async def _load_history(
     messages = list(result.scalars().all())
     messages.reverse()  # Chronological order
 
-    return [
-        {"role": msg.role, "content": msg.content}
-        for msg in messages
-        if msg.content.strip()
-    ]
+    return [{"role": msg.role, "content": msg.content} for msg in messages if msg.content.strip()]
 
 
 # ── Citation Extraction ─────────────────────────────────────────────────────
@@ -347,14 +353,16 @@ def _extract_citations(
             if chunk.chunk_id in seen:
                 continue
             seen.add(chunk.chunk_id)
-            citations.append({
-                "chunk_id": chunk.chunk_id,
-                "source_name": chunk.source_name,
-                "source_id": chunk.source_id,
-                "page": chunk.page,
-                "section": chunk.section,
-                "relevance_score": round(chunk.relevance_score, 4),
-            })
+            citations.append(
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "source_name": chunk.source_name,
+                    "source_id": chunk.source_id,
+                    "page": chunk.page,
+                    "section": chunk.section,
+                    "relevance_score": round(chunk.relevance_score, 4),
+                }
+            )
 
     return citations
 

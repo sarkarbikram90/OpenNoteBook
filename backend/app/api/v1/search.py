@@ -12,7 +12,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
 
 from app.api.v1.schemas.chat import (
     SearchChunkResult,
@@ -20,8 +19,8 @@ from app.api.v1.schemas.chat import (
     SearchResponse,
 )
 from app.core.deps import CurrentUser, DbSession
+from app.domain.governance.access import authorize_notebook_access
 from app.domain.retrieval.retriever import retrieve
-from app.infrastructure.db.models import Notebook
 
 router = APIRouter(tags=["search"])
 
@@ -45,29 +44,22 @@ async def search_notebook(
     Runs the full three-stage pipeline (dense + BM25 + reranker)
     and returns ranked chunks without LLM generation.
     """
-    # Verify notebook ownership
-    result = await db.execute(
-        select(Notebook).where(
-            Notebook.id == notebook_id,
-            Notebook.user_id == user.id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
+    # Verify notebook access and resolve the caller's security context (ACL/sensitivity).
+    access = await authorize_notebook_access(db, notebook_id, user.id)
+    if access is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Notebook not found",
         )
+    _notebook, security_context = access
 
-    source_filter = (
-        [str(sid) for sid in body.source_filter]
-        if body.source_filter
-        else None
-    )
+    source_filter = [str(sid) for sid in body.source_filter] if body.source_filter else None
 
     retrieval_result = retrieve(
         query=body.query,
         notebook_id=str(notebook_id),
         source_filter=source_filter,
+        security_context=security_context,
     )
 
     # Limit to requested top_k
