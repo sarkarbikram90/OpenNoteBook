@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     # ── Celery (Task Queue) ──────────────────────
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    connector_poll_seconds: int = 60
 
     # ── Embedding Model ──────────────────────────
     embedding_model: str = "BAAI/bge-small-en-v1.5"

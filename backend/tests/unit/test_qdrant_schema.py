@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from app.infrastructure.qdrant.schema import PAYLOAD_INDEX_FIELD_TYPE, PAYLOAD_INDEX_FIELDS
+from app.infrastructure.qdrant.schema import (
+    PAYLOAD_INDEX_FIELD_TYPE,
+    PAYLOAD_INDEX_FIELDS,
+    dimension_matches,
+)
 
 
 def test_required_filter_fields_are_indexed():
@@ -29,3 +33,9 @@ def test_field_names_are_snake_case():
 
 def test_index_type_is_keyword():
     assert PAYLOAD_INDEX_FIELD_TYPE == "keyword"
+
+
+def test_dimension_matches():
+    assert dimension_matches(384, None) is True
+    assert dimension_matches(384, 384) is True
+    assert dimension_matches(384, 1536) is False

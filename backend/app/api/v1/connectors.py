@@ -20,14 +20,7 @@ from sqlalchemy import select
 
 from app.core.audit import record_audit_event
 from app.core.deps import CurrentUser, DbSession
-from app.domain.connectors.confluence import ConfluenceConnector
-from app.domain.connectors.generic_rest import RestApiConnector
-from app.domain.connectors.local_fileshare import LocalFileShareConnector
-from app.domain.connectors.s3_connector import S3BucketConnector
-from app.domain.connectors.salesforce import SalesforceConnector
-from app.domain.connectors.sharepoint import SharePointConnector
-from app.domain.connectors.sql_connector import SqlConnector
-from app.domain.connectors.web import WebConnector
+from app.domain.connectors.factory import build_connector
 from app.infrastructure.db.models import ConnectorConfig, Source, WorkspaceMember
 
 logger = logging.getLogger(__name__)
@@ -79,7 +72,9 @@ class ConnectorSyncResponse(BaseModel):
 # ── Helper ──────────────────────────────────────────────────────────────────
 
 
-async def _verify_workspace_permission(workspace_id: uuid.UUID, user_id: uuid.UUID, db: DbSession) -> str:
+async def _verify_workspace_permission(
+    workspace_id: uuid.UUID, user_id: uuid.UUID, db: DbSession
+) -> str:
     """Ensure user is an admin or owner of the workspace."""
     result = await db.execute(
         select(WorkspaceMember.role).where(
@@ -178,9 +173,7 @@ async def test_connector(
     db: DbSession,
 ) -> ConnectorTestResponse:
     """Test connection credentials and reachability."""
-    result = await db.execute(
-        select(ConnectorConfig).where(ConnectorConfig.id == connector_id)
-    )
+    result = await db.execute(select(ConnectorConfig).where(ConnectorConfig.id == connector_id))
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
@@ -188,27 +181,7 @@ async def test_connector(
     await _verify_workspace_permission(connector.workspace_id, user.id, db)
 
     try:
-        if connector.connector_type == "web":
-            conn = WebConnector(connector.config_json)
-            conn.test_connection()
-        elif connector.connector_type == "s3":
-            conn = S3BucketConnector(connector.config_json)
-            conn.test_connection()
-        elif connector.connector_type == "fileshare":
-            LocalFileShareConnector(connector.config_json).test_connection()
-        elif connector.connector_type == "sql":
-            SqlConnector(connector.config_json).test_connection()
-        elif connector.connector_type == "confluence":
-            ConfluenceConnector(connector.config_json).test_connection()
-        elif connector.connector_type == "rest":
-            RestApiConnector(connector.config_json).test_connection()
-        elif connector.connector_type == "salesforce":
-            SalesforceConnector(connector.config_json).test_connection()
-        elif connector.connector_type == "sharepoint":
-            SharePointConnector(connector.config_json).test_connection()
-        else:
-            raise ValueError(f"Unsupported connector type: {connector.connector_type}")
-
+        build_connector(connector.connector_type, connector.config_json).test_connection()
         return ConnectorTestResponse(success=True, message="Connection successful")
     except Exception as exc:
         return ConnectorTestResponse(success=False, message=str(exc))
@@ -232,9 +205,7 @@ async def sync_connector(
         since: Optional ISO-8601 watermark. When provided, connectors that
             support incremental sync return only documents changed at/after it.
     """
-    result = await db.execute(
-        select(ConnectorConfig).where(ConnectorConfig.id == connector_id)
-    )
+    result = await db.execute(select(ConnectorConfig).where(ConnectorConfig.id == connector_id))
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
@@ -248,24 +219,13 @@ async def sync_connector(
         )
 
     # Instantiate connector
-    if connector.connector_type == "web":
-        conn = WebConnector(connector.config_json)
-    elif connector.connector_type == "s3":
-        conn = S3BucketConnector(connector.config_json)
-    elif connector.connector_type == "fileshare":
-        conn = LocalFileShareConnector(connector.config_json)
-    elif connector.connector_type == "sql":
-        conn = SqlConnector(connector.config_json)
-    elif connector.connector_type == "confluence":
-        conn = ConfluenceConnector(connector.config_json)
-    elif connector.connector_type == "rest":
-        conn = RestApiConnector(connector.config_json)
-    elif connector.connector_type == "salesforce":
-        conn = SalesforceConnector(connector.config_json)
-    elif connector.connector_type == "sharepoint":
-        conn = SharePointConnector(connector.config_json)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
+    try:
+        conn = build_connector(connector.connector_type, connector.config_json)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported connector type: {connector.connector_type}",
+        ) from exc
 
     from app.domain.sources.dedup import find_source_by_checksum
     from app.infrastructure.storage.paths import raw_key

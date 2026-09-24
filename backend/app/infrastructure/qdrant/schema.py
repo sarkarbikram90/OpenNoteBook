@@ -20,3 +20,13 @@ PAYLOAD_INDEX_FIELDS: list[str] = [
 
 # All indexed fields are keyword (string / array-of-string) fields.
 PAYLOAD_INDEX_FIELD_TYPE = "keyword"
+
+
+def dimension_matches(configured: int, existing: int | None) -> bool:
+    """Return True if an existing collection's vector size is compatible.
+
+    A mismatch means the embedding model changed (e.g. 384-dim BGE to a 1536-dim
+    model). Re-indexing into the same collection would corrupt it, so a new
+    collection must be used for a side-by-side re-index.
+    """
+    return existing is None or existing == configured

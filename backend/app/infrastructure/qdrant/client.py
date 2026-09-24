@@ -25,7 +25,7 @@ from qdrant_client.models import (
 )
 
 from app.core.config import get_settings
-from app.infrastructure.qdrant.schema import PAYLOAD_INDEX_FIELDS
+from app.infrastructure.qdrant.schema import PAYLOAD_INDEX_FIELDS, dimension_matches
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +82,32 @@ def ensure_collection() -> None:
             settings.embedding_dimension,
         )
     else:
-        logger.debug("Qdrant collection already exists: %s", settings.qdrant_collection)
+        info = client.get_collection(settings.qdrant_collection)
+        existing_dim = _collection_dimension(info)
+        if not dimension_matches(settings.embedding_dimension, existing_dim):
+            raise RuntimeError(
+                f"Qdrant collection {settings.qdrant_collection!r} has vector size "
+                f"{existing_dim}, but the configured embedding dimension is "
+                f"{settings.embedding_dimension}. Use a different collection name "
+                f"(QDRANT_COLLECTION) to re-index with a new embedding model."
+            )
+        logger.debug(
+            "Qdrant collection already exists: %s (dim=%s)",
+            settings.qdrant_collection,
+            existing_dim,
+        )
 
     ensure_payload_indexes()
+
+
+def _collection_dimension(collection_info: Any) -> int | None:
+    """Extract the vector size from a Qdrant collection info object."""
+    try:
+        vectors = collection_info.config.params.vectors
+        size = getattr(vectors, "size", None)
+        return int(size) if size is not None else None
+    except Exception:
+        return None
 
 
 def ensure_payload_indexes() -> None:
