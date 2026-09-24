@@ -4,6 +4,21 @@ global:
   tag: "latest"
   imagePullPolicy: IfNotPresent
 
+# ── Secrets (REQUIRED) ──────────────────────────────────────────────────────
+# No default credentials are shipped. Provide these at deploy time, e.g.:
+#   helm upgrade --install ... \
+#     --set secrets.jwtSecretKey="$JWT_SECRET_KEY" \
+#     --set secrets.postgresPassword="$POSTGRES_PASSWORD" \
+#     --set secrets.minioAccessKey="$MINIO_ACCESS_KEY" \
+#     --set secrets.minioSecretKey="$MINIO_SECRET_KEY"
+secrets:
+  jwtSecretKey: ""
+  postgresUser: "opennotebook"
+  postgresPassword: ""
+  postgresDb: "opennotebook"
+  minioAccessKey: ""
+  minioSecretKey: ""
+
 # ── API Gateway (FastAPI) ───────────────────────────────────────────────────
 api:
   replicaCount: 2

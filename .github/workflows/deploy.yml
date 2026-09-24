@@ -77,6 +77,10 @@ jobs:
             --create-namespace \
             --set global.tag=${TAG} \
             --set global.registry=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }} \
+            --set secrets.jwtSecretKey="${{ secrets.JWT_SECRET_KEY }}" \
+            --set secrets.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
+            --set secrets.minioAccessKey="${{ secrets.MINIO_ACCESS_KEY }}" \
+            --set secrets.minioSecretKey="${{ secrets.MINIO_SECRET_KEY }}" \
             --values ./helm/opennotebook/values.yaml
 
       - name: Verify Deployment Rollout

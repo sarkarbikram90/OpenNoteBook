@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.api.v1.schemas.chat import (
     SearchChunkResult,
@@ -19,6 +19,7 @@ from app.api.v1.schemas.chat import (
     SearchResponse,
 )
 from app.core.deps import CurrentUser, DbSession
+from app.core.limiter import limiter
 from app.domain.governance.access import authorize_notebook_access
 from app.domain.retrieval.retriever import retrieve
 
@@ -33,7 +34,9 @@ router = APIRouter(tags=["search"])
         404: {"description": "Notebook not found"},
     },
 )
+@limiter.limit("60/minute")
 async def search_notebook(
+    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
     notebook_id: uuid.UUID,
     body: SearchRequest,
     user: CurrentUser,

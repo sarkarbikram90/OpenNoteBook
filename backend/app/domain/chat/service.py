@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.audit import record_audit_event
 from app.domain.chat.prompt import build_context, build_prompt, format_history
 from app.infrastructure.db.models import ChatSession, Message, Notebook, Source, UserSettings
 
@@ -77,6 +78,30 @@ async def stream_answer(
     from app.domain.chat.orchestrator import GroundedPromptBuilder
 
     try:
+        # ── 0. Input guardrails (prompt-injection defence) ──────────────
+        from app.domain.governance.guardrails import evaluate_prompt
+
+        guard = evaluate_prompt(question)
+        if not guard.allowed:
+            try:
+                from app.core.metrics import guardrail_blocked_total
+
+                guardrail_blocked_total.labels(reason=guard.reason or "unknown").inc()
+            except Exception as exc:
+                logger.warning("Failed to record guardrail metric: %s", exc)
+
+            logger.warning("Blocked prompt for notebook %s (reason=%s)", notebook_id, guard.reason)
+            yield _sse_event(
+                "error",
+                {
+                    "code": "prompt_blocked",
+                    "message": "Your message was blocked by safety guardrails.",
+                },
+            )
+            return
+
+        question = guard.sanitized
+
         # ── 1. Get or create chat session ───────────────────────────────
         session = await _get_or_create_session(db, notebook_id, session_id, question)
         actual_session_id = str(session.id)
@@ -122,6 +147,33 @@ async def stream_answer(
 
         # Resolve source names from DB for chunks that lack them
         await _enrich_source_names(db, chunks)
+
+        # ── 5b. Audit the query and the retrieved chunk IDs ─────────────
+        try:
+            await record_audit_event(
+                db,
+                action="chat.query",
+                resource_type="notebook",
+                resource_id=notebook_id,
+                user_id=uuid.UUID(user_id) if user_id else None,
+                details={
+                    "session_id": actual_session_id,
+                    "question": question[:500],
+                    "retrieved_chunk_count": len(chunks),
+                    "retrieved_chunk_ids": [c.chunk_id for c in chunks],
+                    "user_roles": sec_ctx.roles if sec_ctx else [],
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to record query audit event: %s", exc)
+
+        try:
+            from app.core.metrics import chat_queries_total, retrieval_chunks_returned
+
+            retrieval_chunks_returned.observe(len(chunks))
+            chat_queries_total.labels(has_context=str(bool(chunks)).lower()).inc()
+        except Exception as exc:
+            logger.warning("Failed to record retrieval metrics: %s", exc)
 
         # ── 6. Build Grounded Prompt with Citations ─────────────────────
         prompt, prompt_citations = GroundedPromptBuilder.build_prompt(

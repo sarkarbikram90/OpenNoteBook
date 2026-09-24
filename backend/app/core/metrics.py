@@ -6,7 +6,7 @@ and registers them on the Prometheus registry.
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
 # ── Metrics Declarations ─────────────────────────────────────────────────────
 
@@ -68,5 +68,28 @@ active_sources = Gauge(
     "opennotebook_active_sources",
     "Number of active (READY) sources in a notebook",
     ["notebook_id"],
+    registry=REGISTRY,
+)
+
+# Retrieval / serving quality metrics
+retrieval_chunks_returned = Histogram(
+    "opennotebook_retrieval_chunks_returned",
+    "Number of authorized chunks returned per retrieval",
+    buckets=(0, 1, 2, 3, 5, 8, 10, 15, 20, 50),
+    registry=REGISTRY,
+)
+
+chat_queries_total = Counter(
+    "opennotebook_chat_queries_total",
+    "Chat queries served, labelled by whether any grounded context was found",
+    ["has_context"],
+    registry=REGISTRY,
+)
+
+# Security metrics
+guardrail_blocked_total = Counter(
+    "opennotebook_guardrail_blocked_total",
+    "Prompts blocked by input guardrails",
+    ["reason"],
     registry=REGISTRY,
 )

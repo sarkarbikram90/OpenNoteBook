@@ -9,7 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -119,6 +119,22 @@ class Settings(BaseSettings):
     # ── Governance / PII ─────────────────────────
     pii_engine: str = "auto"  # "regex" | "presidio" | "auto"
     pii_redaction_enabled: bool = True
+
+    @model_validator(mode="after")
+    def _enforce_production_secrets(self) -> Settings:
+        """Refuse to start in production with default/placeholder secrets."""
+        if self.app_env.lower() in ("production", "prod"):
+            weak = {
+                "",
+                "change-me",
+                "change-me-to-a-random-64-char-string",
+                "change-me-to-a-random-64-char-string-for-prod-security-keys",
+            }
+            if self.jwt_secret_key in weak or len(self.jwt_secret_key) < 32:
+                raise ValueError("JWT_SECRET_KEY must be a strong, unique value in production")
+            if self.minio_secret_key in weak:
+                raise ValueError("MINIO_SECRET_KEY must be set in production")
+        return self
 
 
 @lru_cache(maxsize=1)

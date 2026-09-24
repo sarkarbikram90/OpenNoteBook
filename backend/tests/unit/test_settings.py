@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import Settings
 
 
@@ -19,3 +22,30 @@ def test_cors_origins_defaults_to_localhost():
 
 def test_llm_provider_default():
     assert Settings().llm_provider == "ollama"
+
+
+def test_production_rejects_default_jwt_secret():
+    with pytest.raises(ValidationError):
+        Settings(
+            app_env="production",
+            jwt_secret_key="change-me-to-a-random-64-char-string",
+            minio_secret_key="strong-secret",
+        )
+
+
+def test_production_rejects_short_jwt_secret():
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", jwt_secret_key="short", minio_secret_key="strong-secret")
+
+
+def test_production_accepts_strong_secrets():
+    settings = Settings(
+        app_env="production",
+        jwt_secret_key="x" * 64,
+        minio_secret_key="strong-secret",
+    )
+    assert settings.app_env == "production"
+
+
+def test_development_allows_defaults():
+    assert Settings(app_env="development").jwt_secret_key

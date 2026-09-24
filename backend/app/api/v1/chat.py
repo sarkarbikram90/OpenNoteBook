@@ -17,8 +17,8 @@ import io
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse, Response
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import delete, func, select
 
 from app.api.v1.schemas.chat import (
@@ -33,6 +33,7 @@ from app.api.v1.schemas.chat import (
 )
 from app.core.audit import record_audit_event
 from app.core.deps import CurrentUser, DbSession
+from app.core.limiter import limiter
 from app.domain.chat.service import stream_answer
 from app.domain.governance.access import authorize_notebook_access
 from app.infrastructure.db.models import ChatSession, Message, MessageFeedback, Notebook
@@ -51,7 +52,9 @@ router = APIRouter(tags=["chat"])
         404: {"description": "Notebook not found"},
     },
 )
+@limiter.limit("30/minute")
 async def chat(
+    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
     notebook_id: uuid.UUID,
     body: ChatRequest,
     user: CurrentUser,
@@ -274,7 +277,9 @@ async def export_session(
     summary="Submit feedback for an assistant message",
     responses={404: {"description": "Message not found or not accessible"}},
 )
+@limiter.limit("60/minute")
 async def submit_feedback(
+    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
     body: FeedbackRequest,
     user: CurrentUser,
     db: DbSession,
@@ -283,25 +288,19 @@ async def submit_feedback(
     msg_result = await db.execute(select(Message).where(Message.id == body.message_id))
     message = msg_result.scalar_one_or_none()
     if message is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     session_result = await db.execute(
         select(ChatSession).where(ChatSession.id == message.session_id)
     )
     session = session_result.scalar_one_or_none()
     if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     # Caller must have access to the notebook that owns the message.
     access = await authorize_notebook_access(db, session.notebook_id, user.id)
     if access is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Message not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     feedback = MessageFeedback(
         message_id=message.id,
