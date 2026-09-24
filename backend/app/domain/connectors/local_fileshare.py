@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from app.domain.connectors.base import BaseConnector, ExtractedDocument
+from app.domain.connectors.timeutil import ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,7 @@ class LocalFileShareConnector(BaseConnector):
             since: Optional watermark; only files modified at or after this time
                 are returned.
         """
+        since = ensure_utc(since)
         documents: list[ExtractedDocument] = []
 
         for path in self._iter_files():

@@ -13,6 +13,7 @@ from typing import Any
 from minio import Minio
 
 from app.domain.connectors.base import BaseConnector, ExtractedDocument
+from app.domain.connectors.timeutil import ensure_utc
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,9 @@ class S3BucketConnector(BaseConnector):
         try:
             exists = client.bucket_exists(self.bucket_name)
             if not exists:
-                raise ValueError(f"Bucket {self.bucket_name!r} does not exist or access is forbidden")
+                raise ValueError(
+                    f"Bucket {self.bucket_name!r} does not exist or access is forbidden"
+                )
             return True
         except Exception as exc:
             logger.error("S3 connectivity test failed for %s: %s", self.bucket_name, exc)
@@ -68,6 +71,7 @@ class S3BucketConnector(BaseConnector):
                 after this time are returned.
         """
         client = self._get_client()
+        since = ensure_utc(since)
         documents: list[ExtractedDocument] = []
 
         try:
@@ -119,7 +123,12 @@ class S3BucketConnector(BaseConnector):
                 )
                 count += 1
 
-            logger.info("S3BucketConnector synced %d files from s3://%s/%s", len(documents), self.bucket_name, self.prefix)
+            logger.info(
+                "S3BucketConnector synced %d files from s3://%s/%s",
+                len(documents),
+                self.bucket_name,
+                self.prefix,
+            )
             return documents
 
         except Exception as exc:

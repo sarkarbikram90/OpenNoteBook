@@ -25,6 +25,7 @@ from app.domain.connectors.generic_rest import RestApiConnector
 from app.domain.connectors.local_fileshare import LocalFileShareConnector
 from app.domain.connectors.s3_connector import S3BucketConnector
 from app.domain.connectors.salesforce import SalesforceConnector
+from app.domain.connectors.sharepoint import SharePointConnector
 from app.domain.connectors.sql_connector import SqlConnector
 from app.domain.connectors.web import WebConnector
 from app.infrastructure.db.models import ConnectorConfig, Source, WorkspaceMember
@@ -43,7 +44,9 @@ class ConnectorCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     connector_type: str = Field(
         ...,
-        description="'web', 's3', 'fileshare', 'sql', 'confluence', 'rest', or 'salesforce'",
+        description=(
+            "'web', 's3', 'fileshare', 'sql', 'confluence', 'rest', 'salesforce', or 'sharepoint'"
+        ),
     )
     config_json: dict[str, Any] = Field(default_factory=dict)
     schedule_cron: str | None = None
@@ -201,6 +204,8 @@ async def test_connector(
             RestApiConnector(connector.config_json).test_connection()
         elif connector.connector_type == "salesforce":
             SalesforceConnector(connector.config_json).test_connection()
+        elif connector.connector_type == "sharepoint":
+            SharePointConnector(connector.config_json).test_connection()
         else:
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
@@ -257,6 +262,8 @@ async def sync_connector(
         conn = RestApiConnector(connector.config_json)
     elif connector.connector_type == "salesforce":
         conn = SalesforceConnector(connector.config_json)
+    elif connector.connector_type == "sharepoint":
+        conn = SharePointConnector(connector.config_json)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
 
