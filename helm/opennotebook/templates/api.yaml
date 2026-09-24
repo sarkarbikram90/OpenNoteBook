@@ -7,6 +7,11 @@ metadata:
     app: opennotebook-api
 spec:
   replicas: {{ .Values.api.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: opennotebook-api
@@ -57,3 +62,56 @@ spec:
       name: http
   selector:
     app: opennotebook-api
+{{- if .Values.api.canary.enabled }}
+---
+# Canary deployment: shares the API Service selector (app: opennotebook-api) so
+# a small number of replicas serve a candidate image. Traffic share is
+# proportional to replica count. Promote by setting global.tag to the canary tag
+# and disabling the canary; roll back by disabling it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-api-canary
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-api
+    track: canary
+spec:
+  replicas: {{ .Values.api.canary.replicaCount }}
+  selector:
+    matchLabels:
+      app: opennotebook-api
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: opennotebook-api
+        track: canary
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.global.registry }}/api:{{ .Values.api.canary.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.api.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: opennotebook-config
+            - secretRef:
+                name: opennotebook-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: {{ .Values.api.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}

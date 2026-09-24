@@ -1,0 +1,38 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny for all pods in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opennotebook-default-deny
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow intra-namespace traffic (api <-> db/cache/qdrant/minio/ollama) and DNS.
+# NOTE: cloud LLM egress (OpenAI/Anthropic/Gemini) is intentionally blocked;
+# add an egress rule for those endpoints if you use a cloud provider.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opennotebook-allow-internal
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

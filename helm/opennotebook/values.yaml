@@ -35,6 +35,10 @@ api:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 80
+  canary:
+    enabled: false
+    replicaCount: 1
+    tag: "canary"
   env:
     APP_ENV: "production"
     LOG_FORMAT: "json"
@@ -55,6 +59,24 @@ worker:
     minReplicas: 2
     maxReplicas: 8
     targetCPUUtilizationPercentage: 80
+
+# ── Celery Beat (scheduled connector syncs) ─────────────────────────────────
+beat:
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+# ── Availability & Network Hardening ────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
 
 # ── Frontend Service (React + Nginx) ────────────────────────────────────────
 frontend:

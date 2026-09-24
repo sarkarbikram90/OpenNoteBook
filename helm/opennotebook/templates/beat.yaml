@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opennotebook-beat
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-beat
+spec:
+  # Exactly one beat process may run; Recreate avoids overlapping schedulers.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opennotebook-beat
+  template:
+    metadata:
+      labels:
+        app: opennotebook-beat
+    spec:
+      containers:
+        - name: beat
+          image: "{{ .Values.global.registry }}/worker:{{ .Values.global.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO"]
+          envFrom:
+            - configMapRef:
+                name: opennotebook-config
+            - secretRef:
+                name: opennotebook-secrets
+          resources:
+            {{- toYaml .Values.beat.resources | nindent 12 }}

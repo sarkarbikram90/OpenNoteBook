@@ -13,8 +13,31 @@ env:
   GKE_ZONE: us-central1-a
 
 jobs:
+  verify:
+    name: Verify (unit + eval regression)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev]"
+
+      - name: Run unit + evaluation regression tests
+        run: |
+          cd backend && pytest tests/evaluation tests/unit -o addopts="" -q
+
   deploy:
     name: Build, Push, and Deploy
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code

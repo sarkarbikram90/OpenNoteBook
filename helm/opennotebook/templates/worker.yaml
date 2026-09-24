@@ -7,6 +7,11 @@ metadata:
     app: opennotebook-worker
 spec:
   replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: opennotebook-worker
@@ -25,5 +30,15 @@ spec:
                 name: opennotebook-config
             - secretRef:
                 name: opennotebook-secrets
+          readinessProbe:
+            exec:
+              command: ["celery", "-A", "app.worker.celery_app", "inspect", "ping", "--timeout", "10"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          livenessProbe:
+            exec:
+              command: ["celery", "-A", "app.worker.celery_app", "inspect", "ping", "--timeout", "10"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
