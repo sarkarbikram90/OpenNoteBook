@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.domain.sources.extractor import ExtractionResult, PageContent
+from app.domain.sources.tokenization import count_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,14 @@ MIN_TOKENS = 150
 
 # Approx word-to-token ratio for English BPE tokenisers
 _WORD_TO_TOKEN_RATIO = 1.33
+
+# Fixed namespace so chunk IDs are deterministic across re-index runs.
+_CHUNK_NAMESPACE = uuid.UUID("9a1b7c3e-2f4d-4a6b-8c9d-0e1f2a3b4c5d")
+
+
+def _deterministic_chunk_id(source_id: str, start_char: int, text: str) -> str:
+    """Stable chunk ID derived from its source, position, and content."""
+    return str(uuid.uuid5(_CHUNK_NAMESPACE, f"{source_id}:{start_char}:{text}"))
 
 
 # ── Data Structures ─────────────────────────────────────────────────────────
@@ -144,9 +153,8 @@ def _consolidate_small_chunks(chunks: list[Chunk]) -> list[Chunk]:
 
 
 def _count_tokens(text: str) -> int:
-    """Estimate token count from word count."""
-    words = len(text.split())
-    return int(words * _WORD_TO_TOKEN_RATIO)
+    """Return the token count using the configured tokenizer backend."""
+    return count_tokens(text)
 
 
 def _split_paragraphs(text: str) -> list[str]:
@@ -328,7 +336,7 @@ def _make_chunk(
     """Assemble a Chunk object from text parts."""
     text = "\n\n".join(parts)
     return Chunk(
-        chunk_id=str(uuid.uuid4()),
+        chunk_id=_deterministic_chunk_id(source_id, start_char, text),
         source_id=source_id,
         notebook_id=notebook_id,
         text=text,

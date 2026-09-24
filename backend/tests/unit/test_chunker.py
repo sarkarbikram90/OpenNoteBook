@@ -77,7 +77,9 @@ class TestChunkerUnit:
 
         assert len(consolidated) == 1
         assert "Short concluding remark." in consolidated[0].text
-        assert consolidated[0].token_count > 200
+        # token_count is recomputed from the merged text, not summed from inputs.
+        assert consolidated[0].token_count == _count_tokens(consolidated[0].text)
+        assert consolidated[0].token_count > c2.token_count
 
     def test_token_counting_ratio(self) -> None:
         """Token count estimates approximate BPE token counts from words."""
@@ -85,3 +87,25 @@ class TestChunkerUnit:
         tokens = _count_tokens(text)
         # 6 words * 1.33 ≈ 7-8 tokens
         assert 6 <= tokens <= 10
+
+    def test_chunk_ids_are_deterministic(self) -> None:
+        """Re-chunking the same document yields identical chunk IDs (idempotent upserts)."""
+        import uuid as _uuid
+
+        text = "Paragraph one about transformers and attention.\n\nParagraph two about embeddings."
+        extraction = ExtractionResult(
+            text=text,
+            metadata={},
+            pages=[PageContent(page_number=1, text=text)],
+        )
+
+        first = chunk_document(extraction, source_id="src-1", notebook_id="nb-1")
+        second = chunk_document(extraction, source_id="src-1", notebook_id="nb-1")
+        other = chunk_document(extraction, source_id="src-2", notebook_id="nb-1")
+
+        assert [c.chunk_id for c in first] == [c.chunk_id for c in second]
+        assert [c.chunk_id for c in first] != [c.chunk_id for c in other]
+
+        # Chunk IDs must remain valid UUIDs (Qdrant point IDs).
+        for chunk in first:
+            _uuid.UUID(chunk.chunk_id)

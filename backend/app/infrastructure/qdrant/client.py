@@ -16,14 +16,16 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PayloadSchemaType,
     PointStruct,
     VectorParams,
-    Filter,
-    FieldCondition,
-    MatchValue,
 )
 
 from app.core.config import get_settings
+from app.infrastructure.qdrant.schema import PAYLOAD_INDEX_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,31 @@ def ensure_collection() -> None:
         )
     else:
         logger.debug("Qdrant collection already exists: %s", settings.qdrant_collection)
+
+    ensure_payload_indexes()
+
+
+def ensure_payload_indexes() -> None:
+    """Create payload indexes for filtered fields.
+
+    Without these, Qdrant performs a full scan for every metadata-filtered
+    query (notebook/source/sensitivity/ACL filters). Creation is idempotent and
+    best-effort: an index that already exists is left as-is.
+    """
+    settings = get_settings()
+    client = get_qdrant_client()
+
+    for field_name in PAYLOAD_INDEX_FIELDS:
+        try:
+            client.create_payload_index(
+                collection_name=settings.qdrant_collection,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception as exc:  # already exists, or transient
+            logger.debug("Payload index for %s not created: %s", field_name, exc)
+
+    logger.info("Ensured payload indexes for %d fields", len(PAYLOAD_INDEX_FIELDS))
 
 
 def upsert_chunks(chunks: list[ChunkPayload]) -> None:
