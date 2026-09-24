@@ -259,6 +259,21 @@ def process_source(self, source_id: str) -> dict:
         else:
             logger.info("PII redaction disabled by configuration; skipping scrub for %s", source_id)
 
+        # ── Step 1c: EMPTY-EXTRACTION GUARD ─────────────────────────────
+        if not extraction.text.strip():
+            textless = extraction.metadata.get("textless_pages")
+            message = (
+                "No extractable text found; the document may be scanned or image-only "
+                "and OCR is not available."
+            )
+            logger.warning(
+                "Source %s produced no text (textless_pages=%s)", source_id, textless
+            )
+            _update_source_status(
+                source_id, "FAILED", error_message=message, page_count=page_count
+            )
+            return {"source_id": source_id, "status": "FAILED", "error": message}
+
         # ── Step 2: CHUNKING ────────────────────────────────────────────
         _update_source_status(source_id, "CHUNKING", page_count=page_count)
 

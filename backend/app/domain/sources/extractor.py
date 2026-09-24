@@ -75,20 +75,55 @@ def extract(source_type: str, content: bytes | str, **kwargs: Any) -> Extraction
 # ── PDF Extraction (PyMuPDF) ────────────────────────────────────────────────
 
 
-def _extract_pdf(content: bytes | str, **kwargs: Any) -> ExtractionResult:
-    """Extract text from a PDF using PyMuPDF (fitz).
+def _import_pymupdf() -> Any:
+    """Import PyMuPDF, preferring the non-deprecated ``pymupdf`` module name."""
+    try:
+        import pymupdf
 
-    Preserves page numbers and attempts to detect section headings
-    from font-size changes.
+        return pymupdf
+    except ImportError:  # older PyMuPDF releases only expose ``fitz``
+        import fitz
+
+        return fitz
+
+
+def _ocr_pdf_page(page: Any) -> str:
+    """OCR a single PDF page when Tesseract/Pillow are available, else empty string."""
+    try:
+        import io
+
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return ""
+
+    try:
+        pixmap = page.get_pixmap(dpi=200)
+        image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+        return str(pytesseract.image_to_string(image))
+    except Exception as exc:  # pragma: no cover - depends on local Tesseract
+        logger.warning("OCR failed for a PDF page: %s", exc)
+        return ""
+
+
+def _extract_pdf(content: bytes | str, **kwargs: Any) -> ExtractionResult:
+    """Extract text from a PDF using PyMuPDF.
+
+    Preserves page numbers, detects section headings from font-size changes,
+    and OCRs text-less pages when Tesseract is available. Pages with neither a
+    text layer nor successful OCR are recorded in ``metadata["textless_pages"]``
+    so callers can flag scanned documents rather than silently indexing nothing.
     """
-    import fitz  # PyMuPDF
+    pymupdf = _import_pymupdf()
 
     if isinstance(content, str):
         content = content.encode("utf-8")
 
-    doc = fitz.open(stream=content, filetype="pdf")
+    doc = pymupdf.open(stream=content, filetype="pdf")
     pages: list[PageContent] = []
     full_text_parts: list[str] = []
+    textless_pages: list[int] = []
+    ocr_used = False
 
     metadata = {
         "title": doc.metadata.get("title", ""),
@@ -101,17 +136,30 @@ def _extract_pdf(content: bytes | str, **kwargs: Any) -> ExtractionResult:
         page = doc[page_num]
         text = page.get_text("text")
 
+        if not text.strip():
+            ocr_text = _ocr_pdf_page(page)
+            if ocr_text.strip():
+                text = ocr_text
+                ocr_used = True
+            else:
+                textless_pages.append(page_num + 1)
+
         # Attempt to detect the first large-font line as a section heading
         section = _detect_pdf_section(page)
 
-        pages.append(PageContent(
-            page_number=page_num + 1,
-            text=text,
-            section=section,
-        ))
+        pages.append(
+            PageContent(
+                page_number=page_num + 1,
+                text=text,
+                section=section,
+            )
+        )
         full_text_parts.append(text)
 
     doc.close()
+
+    metadata["ocr_used"] = ocr_used
+    metadata["textless_pages"] = textless_pages
 
     return ExtractionResult(
         text="\n\n".join(full_text_parts),
@@ -123,7 +171,7 @@ def _extract_pdf(content: bytes | str, **kwargs: Any) -> ExtractionResult:
 def _detect_pdf_section(page: Any) -> str | None:
     """Detect a section heading on a PDF page by looking for large-font text blocks."""
     try:
-        blocks = page.get_text("dict", flags=11)["blocks"]
+        blocks = page.get_text("dict").get("blocks", [])
         for block in blocks:
             if "lines" not in block:
                 continue
@@ -134,8 +182,9 @@ def _detect_pdf_section(page: Any) -> str | None:
                         heading = span["text"].strip()
                         if heading:
                             return heading
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("PDF section detection failed: %s", exc)
+        return None
     return None
 
 
@@ -143,13 +192,18 @@ def _detect_pdf_section(page: Any) -> str | None:
 
 
 def _extract_docx(content: bytes | str, **kwargs: Any) -> ExtractionResult:
-    """Extract text from a DOCX file using python-docx.
+    """Extract text and tables from a DOCX file using python-docx.
 
-    Detects section headings from paragraph styles (Heading 1, Heading 2, etc.).
+    Iterates the document body in order so that tables are captured in place
+    (python-docx's ``doc.paragraphs`` skips tables entirely). Detects section
+    headings from paragraph styles (Heading 1, Heading 2, ...).
     """
     import io
 
     from docx import Document
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     if isinstance(content, str):
         content = content.encode("utf-8")
@@ -161,6 +215,7 @@ def _extract_docx(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     current_section: str | None = None
     current_page_text: list[str] = []
     page_number = 1
+    table_count = 0
 
     metadata = {
         "title": doc.core_properties.title or "",
@@ -168,40 +223,42 @@ def _extract_docx(content: bytes | str, **kwargs: Any) -> ExtractionResult:
         "format": "docx",
     }
 
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
+    def _flush() -> None:
+        nonlocal page_number
+        if current_page_text:
+            page_text = "\n".join(current_page_text)
+            pages.append(
+                PageContent(page_number=page_number, text=page_text, section=current_section)
+            )
+            full_text_parts.append(page_text)
+            page_number += 1
+            current_page_text.clear()
 
-        # Detect heading styles
-        if para.style and para.style.name and para.style.name.startswith("Heading"):
-            # Save current page content
-            if current_page_text:
-                page_text = "\n".join(current_page_text)
-                pages.append(PageContent(
-                    page_number=page_number,
-                    text=page_text,
-                    section=current_section,
-                ))
-                full_text_parts.append(page_text)
-                page_number += 1
-                current_page_text = []
+    for child in doc.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            para = Paragraph(child, doc)
+            text = para.text.strip()
+            if not text:
+                continue
 
-            current_section = text
+            if para.style and para.style.name and para.style.name.startswith("Heading"):
+                _flush()
+                current_section = text
 
-        current_page_text.append(text)
+            current_page_text.append(text)
 
-    # Flush remaining content
-    if current_page_text:
-        page_text = "\n".join(current_page_text)
-        pages.append(PageContent(
-            page_number=page_number,
-            text=page_text,
-            section=current_section,
-        ))
-        full_text_parts.append(page_text)
+        elif child.tag == qn("w:tbl"):
+            table = Table(child, doc)
+            table_count += 1
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                if any(cells):
+                    current_page_text.append(" | ".join(cells))
+
+    _flush()
 
     metadata["page_count"] = len(pages)
+    metadata["table_count"] = table_count
 
     return ExtractionResult(
         text="\n\n".join(full_text_parts),
@@ -235,11 +292,13 @@ def _extract_text(content: bytes | str, **kwargs: Any) -> ExtractionResult:
             # Save current section as a page
             if current_page_text:
                 page_text = "\n".join(current_page_text)
-                pages.append(PageContent(
-                    page_number=page_number,
-                    text=page_text,
-                    section=current_section,
-                ))
+                pages.append(
+                    PageContent(
+                        page_number=page_number,
+                        text=page_text,
+                        section=current_section,
+                    )
+                )
                 page_number += 1
                 current_page_text = []
 
@@ -250,11 +309,13 @@ def _extract_text(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     # Flush
     if current_page_text:
         page_text = "\n".join(current_page_text)
-        pages.append(PageContent(
-            page_number=page_number,
-            text=page_text,
-            section=current_section,
-        ))
+        pages.append(
+            PageContent(
+                page_number=page_number,
+                text=page_text,
+                section=current_section,
+            )
+        )
 
     return ExtractionResult(
         text=content,
@@ -305,11 +366,13 @@ def _extract_url(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     if title_match:
         metadata["title"] = title_match.group(1).strip()
 
-    pages = [PageContent(
-        page_number=1,
-        text=text,
-        section=metadata.get("title"),
-    )]
+    pages = [
+        PageContent(
+            page_number=1,
+            text=text,
+            section=metadata.get("title"),
+        )
+    ]
 
     return ExtractionResult(
         text=text,
@@ -373,11 +436,13 @@ def _extract_youtube(content: bytes | str, **kwargs: Any) -> ExtractionResult:
         # Create a new "page" roughly every 60 seconds
         if elapsed >= 60.0:
             page_text = " ".join(current_page_text)
-            pages.append(PageContent(
-                page_number=page_number,
-                text=page_text,
-                section=f"Timestamp {int(page_start_time // 60)}:{int(page_start_time % 60):02d}",
-            ))
+            pages.append(
+                PageContent(
+                    page_number=page_number,
+                    text=page_text,
+                    section=f"Timestamp {int(page_start_time // 60)}:{int(page_start_time % 60):02d}",
+                )
+            )
             full_text_parts.append(page_text)
             page_number += 1
             current_page_text = []
@@ -386,11 +451,13 @@ def _extract_youtube(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     # Flush remaining
     if current_page_text:
         page_text = " ".join(current_page_text)
-        pages.append(PageContent(
-            page_number=page_number,
-            text=page_text,
-            section=f"Timestamp {int(page_start_time // 60)}:{int(page_start_time % 60):02d}",
-        ))
+        pages.append(
+            PageContent(
+                page_number=page_number,
+                text=page_text,
+                section=f"Timestamp {int(page_start_time // 60)}:{int(page_start_time % 60):02d}",
+            )
+        )
         full_text_parts.append(page_text)
 
     return ExtractionResult(
