@@ -59,6 +59,8 @@ class Chunk:
     start_char: int = 0
     end_char: int = 0
     embedding_model: str = ""
+    allowed_roles: list[str] = field(default_factory=list)
+    allowed_users: list[str] = field(default_factory=list)
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -69,6 +71,8 @@ def chunk_document(
     source_id: str,
     notebook_id: str,
     embedding_model: str = "BAAI/bge-small-en-v1.5",
+    allowed_roles: list[str] | None = None,
+    allowed_users: list[str] | None = None,
 ) -> list[Chunk]:
     """Split an extracted document into semantic chunks.
 
@@ -118,6 +122,14 @@ def chunk_document(
 
     # Consolidate small chunks so short documents or trailing sections are never lost
     chunks = _consolidate_small_chunks(chunks)
+
+    # Attach document-level ACLs to every chunk (enforced at retrieval time).
+    acl_roles = list(allowed_roles or [])
+    acl_users = list(allowed_users or [])
+    if acl_roles or acl_users:
+        for chunk in chunks:
+            chunk.allowed_roles = acl_roles
+            chunk.allowed_users = acl_users
 
     logger.info(
         "Chunked document into %d chunks (source=%s)",

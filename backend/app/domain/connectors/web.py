@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -83,8 +84,12 @@ class WebConnector(BaseConnector):
                 valid_links.append(clean_link)
         return list(set(valid_links))
 
-    def sync(self) -> list[ExtractedDocument]:
-        """Crawl the website up to max_pages and max_depth."""
+    def sync(self, since: datetime | None = None) -> list[ExtractedDocument]:
+        """Crawl the website up to max_pages and max_depth.
+
+        Note: crawls are full scans; ``since`` is accepted for interface
+        compatibility but not applied (web pages expose no delta token).
+        """
         import urllib.request
 
         visited: set[str] = set()

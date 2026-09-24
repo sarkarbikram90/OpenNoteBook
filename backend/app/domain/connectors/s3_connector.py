@@ -6,6 +6,7 @@ Connects to AWS S3 or MinIO buckets to ingest enterprise files (.pdf, .docx, .tx
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +60,13 @@ class S3BucketConnector(BaseConnector):
             logger.error("S3 connectivity test failed for %s: %s", self.bucket_name, exc)
             raise ConnectionError(f"S3 Connection failed: {exc}") from exc
 
-    def sync(self) -> list[ExtractedDocument]:
-        """List and retrieve supported documents from the S3 bucket."""
+    def sync(self, since: datetime | None = None) -> list[ExtractedDocument]:
+        """List and retrieve supported documents from the S3 bucket.
+
+        Args:
+            since: Optional watermark; when provided, only objects modified at or
+                after this time are returned.
+        """
         client = self._get_client()
         documents: list[ExtractedDocument] = []
 
@@ -77,6 +83,13 @@ class S3BucketConnector(BaseConnector):
                 suffix = Path(obj.object_name).suffix.lower()
                 if suffix not in _SUPPORTED_EXTENSIONS:
                     continue
+
+                if since is not None and obj.last_modified is not None:
+                    last_modified = obj.last_modified
+                    if last_modified.tzinfo is None:
+                        last_modified = last_modified.replace(tzinfo=timezone.utc)
+                    if last_modified < since:
+                        continue
 
                 source_type = _SUPPORTED_EXTENSIONS[suffix]
                 filename = Path(obj.object_name).name

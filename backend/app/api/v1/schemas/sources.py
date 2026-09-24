@@ -43,6 +43,8 @@ class SourceResponse(BaseModel):
     source_url: str | None = None
     checksum: str | None = None
     content_type: str | None = None
+    allowed_roles: list[str] = Field(default_factory=list)
+    allowed_users: list[str] = Field(default_factory=list)
     metadata_: dict[str, Any] = Field(default_factory=dict, alias="metadata_")
     created_at: datetime
     updated_at: datetime

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -25,6 +25,9 @@ class ExtractedDocument:
     external_id: str | None = None
     last_modified: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Access control copied from the source system, stored alongside each chunk.
+    allowed_users: list[str] = field(default_factory=list)
+    allowed_roles: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -58,8 +61,13 @@ class BaseConnector(ABC):
         ...
 
     @abstractmethod
-    def sync(self) -> list[ExtractedDocument]:
+    def sync(self, since: datetime | None = None) -> list[ExtractedDocument]:
         """Fetch and extract documents from the external source.
+
+        Args:
+            since: Optional watermark. When provided, connectors that support
+                incremental sync should return only documents changed at or
+                after this time. Connectors without delta support may ignore it.
 
         Returns:
             List of standardized ExtractedDocument instances.
@@ -70,5 +78,5 @@ class BaseConnector(ABC):
         """Return connector runtime metadata."""
         return {
             "connector_type": self.__class__.__name__,
-            "configured_at": datetime.utcnow().isoformat(),
+            "configured_at": datetime.now(UTC).isoformat(),
         }

@@ -128,6 +128,8 @@ def _get_source_record(source_id: str) -> dict:
             "storage_path": source.storage_path,
             "source_url": source.source_url,
             "sensitivity_level": getattr(source, "sensitivity_level", "internal"),
+            "allowed_roles": list(getattr(source, "allowed_roles", []) or []),
+            "allowed_users": list(getattr(source, "allowed_users", []) or []),
         }
     finally:
         session.close()
@@ -206,6 +208,8 @@ def process_source(self, source_id: str) -> dict:
         workspace_id = source.get("workspace_id", "")
         source_type = source["source_type"]
         sensitivity_level = source.get("sensitivity_level", "internal")
+        allowed_roles = source.get("allowed_roles", [])
+        allowed_users = source.get("allowed_users", [])
 
         logger.info(
             "Processing source %s (type=%s, notebook=%s, workspace=%s, sensitivity=%s)",
@@ -263,6 +267,8 @@ def process_source(self, source_id: str) -> dict:
             source_id=source_id,
             notebook_id=notebook_id,
             embedding_model=settings.embedding_model,
+            allowed_roles=allowed_roles,
+            allowed_users=allowed_users,
         )
 
         # ── Step 2b: PERSIST PROCESSED ARTIFACTS TO DATA LAKE ───────────
@@ -311,6 +317,8 @@ def process_source(self, source_id: str) -> dict:
                 start_char=chunk.start_char,
                 end_char=chunk.end_char,
                 embedding_model=chunk.embedding_model,
+                allowed_roles=chunk.allowed_roles,
+                allowed_users=chunk.allowed_users,
                 vector=vector,
             )
             for chunk, vector in zip(chunks, vectors)

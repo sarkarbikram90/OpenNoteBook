@@ -71,8 +71,13 @@ class LocalFileShareConnector(BaseConnector):
         ]
         return sorted(files)
 
-    def sync(self) -> list[ExtractedDocument]:
-        """Walk the share and return supported documents with checksums."""
+    def sync(self, since: datetime | None = None) -> list[ExtractedDocument]:
+        """Walk the share and return supported documents with checksums.
+
+        Args:
+            since: Optional watermark; only files modified at or after this time
+                are returned.
+        """
         documents: list[ExtractedDocument] = []
 
         for path in self._iter_files():
@@ -85,6 +90,16 @@ class LocalFileShareConnector(BaseConnector):
                 break
 
             try:
+                stat = path.stat()
+            except OSError as exc:
+                logger.warning("Skipping unreadable file %s: %s", path, exc)
+                continue
+
+            last_modified = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+            if since is not None and last_modified < since:
+                continue
+
+            try:
                 data = path.read_bytes()
             except OSError as exc:
                 logger.warning("Skipping unreadable file %s: %s", path, exc)
@@ -93,7 +108,6 @@ class LocalFileShareConnector(BaseConnector):
             checksum = hashlib.sha256(data).hexdigest()
             source_type = _SUPPORTED_EXTENSIONS[path.suffix.lower()]
             rel = path.relative_to(self.root).as_posix()
-            last_modified = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
             documents.append(
                 ExtractedDocument(

@@ -109,3 +109,24 @@ class TestChunkerUnit:
         # Chunk IDs must remain valid UUIDs (Qdrant point IDs).
         for chunk in first:
             _uuid.UUID(chunk.chunk_id)
+
+    def test_chunk_document_attaches_acl(self) -> None:
+        """Document-level ACLs are propagated onto every chunk."""
+        text = "Confidential content about the finance restructuring plan."
+        extraction = ExtractionResult(
+            text=text,
+            metadata={},
+            pages=[PageContent(page_number=1, text=text)],
+        )
+
+        chunks = chunk_document(
+            extraction,
+            source_id="src-acl",
+            notebook_id="nb-acl",
+            allowed_roles=["finance"],
+            allowed_users=["u-42"],
+        )
+
+        assert chunks
+        assert all(c.allowed_roles == ["finance"] for c in chunks)
+        assert all(c.allowed_users == ["u-42"] for c in chunks)

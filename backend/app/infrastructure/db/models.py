@@ -214,6 +214,12 @@ class Source(Base):
     storage_type: Mapped[str] = mapped_column(Text, server_default="minio", nullable=False)
     checksum: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    allowed_roles: Mapped[list[str]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
+    allowed_users: Mapped[list[str]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, server_default="{}", nullable=False
     )

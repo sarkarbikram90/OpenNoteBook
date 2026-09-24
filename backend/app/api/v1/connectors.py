@@ -21,6 +21,7 @@ from sqlalchemy import select
 from app.core.deps import CurrentUser, DbSession
 from app.core.audit import record_audit_event
 from app.domain.connectors.local_fileshare import LocalFileShareConnector
+from app.domain.connectors.sql_connector import SqlConnector
 from app.domain.connectors.web import WebConnector
 from app.domain.connectors.s3_connector import S3BucketConnector
 from app.infrastructure.db.models import ConnectorConfig, Notebook, Source, WorkspaceMember
@@ -37,7 +38,7 @@ class ConnectorCreateRequest(BaseModel):
     workspace_id: uuid.UUID
     notebook_id: uuid.UUID | None = None
     name: str = Field(..., min_length=1, max_length=120)
-    connector_type: str = Field(..., description="'web', 's3', or 'fileshare'")
+    connector_type: str = Field(..., description="'web', 's3', 'fileshare', or 'sql'")
     config_json: dict[str, Any] = Field(default_factory=dict)
     schedule_cron: str | None = None
 
@@ -186,6 +187,8 @@ async def test_connector(
             conn.test_connection()
         elif connector.connector_type == "fileshare":
             LocalFileShareConnector(connector.config_json).test_connection()
+        elif connector.connector_type == "sql":
+            SqlConnector(connector.config_json).test_connection()
         else:
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
@@ -204,8 +207,14 @@ async def sync_connector(
     connector_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    since: datetime | None = None,
 ) -> ConnectorSyncResponse:
-    """Execute connector sync and ingest discovered documents into the Data Lake."""
+    """Execute connector sync and ingest discovered documents into the Data Lake.
+
+    Args:
+        since: Optional ISO-8601 watermark. When provided, connectors that
+            support incremental sync return only documents changed at/after it.
+    """
     result = await db.execute(
         select(ConnectorConfig).where(ConnectorConfig.id == connector_id)
     )
@@ -228,6 +237,8 @@ async def sync_connector(
         conn = S3BucketConnector(connector.config_json)
     elif connector.connector_type == "fileshare":
         conn = LocalFileShareConnector(connector.config_json)
+    elif connector.connector_type == "sql":
+        conn = SqlConnector(connector.config_json)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
 
@@ -237,7 +248,7 @@ async def sync_connector(
     from app.worker.tasks.process_source import process_source
 
     storage = get_storage_service()
-    docs = conn.sync()
+    docs = conn.sync(since=since)
 
     synced = 0
     skipped = 0
@@ -277,6 +288,8 @@ async def sync_connector(
             storage_type=storage.provider,
             content_type=content_type,
             checksum=file_hash,
+            allowed_roles=list(doc.allowed_roles or []),
+            allowed_users=list(doc.allowed_users or []),
             status="PENDING",
             metadata_={
                 "sha256": file_hash,
