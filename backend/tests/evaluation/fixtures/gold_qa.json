@@ -1,0 +1,29 @@
+{
+  "name": "gold-qa-example",
+  "_comment": "Template for live evaluation runs. Replace placeholder IDs with real notebook/chunk/source UUIDs. Run with: python -m app.scripts.run_eval <this-file>",
+  "cases": [
+    {
+      "id": "q1",
+      "question": "What is the refund policy?",
+      "notebook_id": "<notebook-uuid>",
+      "expected_chunk_ids": ["<chunk-uuid>"],
+      "answer_must_contain": ["30 days"],
+      "answer_must_not_contain": ["60 days"],
+      "should_say_dont_know": false
+    },
+    {
+      "id": "q2",
+      "question": "What is the onboarding process?",
+      "notebook_id": "<notebook-uuid>",
+      "expected_source_ids": ["<source-uuid>"],
+      "should_say_dont_know": false
+    },
+    {
+      "id": "q3",
+      "question": "Who won the 2026 World Cup?",
+      "notebook_id": "<notebook-uuid>",
+      "expected_chunk_ids": [],
+      "should_say_dont_know": true
+    }
+  ]
+}

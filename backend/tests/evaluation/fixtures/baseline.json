@@ -1,0 +1,46 @@
+{
+  "_comment": "Recorded evaluation outputs for CI regression. Replace 'recorded' with fresh outputs when pipeline behaviour changes intentionally.",
+  "dataset": {
+    "name": "baseline",
+    "cases": [
+      {
+        "id": "c1",
+        "question": "What is the refund policy?",
+        "notebook_id": "nb1",
+        "expected_chunk_ids": ["k1", "k2"],
+        "answer_must_contain": ["30 days"],
+        "answer_must_not_contain": ["60 days"],
+        "should_say_dont_know": false
+      },
+      {
+        "id": "c2",
+        "question": "Who is the current CEO?",
+        "notebook_id": "nb1",
+        "expected_chunk_ids": ["k5"],
+        "should_say_dont_know": true
+      },
+      {
+        "id": "c3",
+        "question": "What uptime does the SLA guarantee?",
+        "notebook_id": "nb1",
+        "expected_chunk_ids": ["k9"],
+        "answer_must_contain": ["99.9%"],
+        "should_say_dont_know": false
+      }
+    ]
+  },
+  "recorded": {
+    "c1": {
+      "retrieved": ["k1", "k2", "k7"],
+      "answer": "Refunds are available within 30 days of purchase. [Source 1]"
+    },
+    "c2": {
+      "retrieved": ["k5", "k6"],
+      "answer": "I could not find that information in this notebook's sources."
+    },
+    "c3": {
+      "retrieved": ["k9", "k1", "k2", "k3"],
+      "answer": "The SLA guarantees 99.9% uptime. [Source 1]"
+    }
+  }
+}

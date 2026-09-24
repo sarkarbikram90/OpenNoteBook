@@ -159,6 +159,8 @@ ignore = [
 "tests/**/*.py" = ["S101", "ARG001", "ARG002"]
 # Base provider defines the interface; argument "unused" is intentional.
 "app/infrastructure/llm/base.py" = ["ARG002"]
+# CLI scripts print reports to stdout by design.
+"app/scripts/run_eval.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
