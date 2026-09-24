@@ -11,21 +11,22 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.core.deps import CurrentUser, DbSession
 from app.core.audit import record_audit_event
+from app.core.deps import CurrentUser, DbSession
 from app.domain.connectors.confluence import ConfluenceConnector
+from app.domain.connectors.generic_rest import RestApiConnector
 from app.domain.connectors.local_fileshare import LocalFileShareConnector
+from app.domain.connectors.s3_connector import S3BucketConnector
 from app.domain.connectors.sql_connector import SqlConnector
 from app.domain.connectors.web import WebConnector
-from app.domain.connectors.s3_connector import S3BucketConnector
-from app.infrastructure.db.models import ConnectorConfig, Notebook, Source, WorkspaceMember
+from app.infrastructure.db.models import ConnectorConfig, Source, WorkspaceMember
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,9 @@ class ConnectorCreateRequest(BaseModel):
     workspace_id: uuid.UUID
     notebook_id: uuid.UUID | None = None
     name: str = Field(..., min_length=1, max_length=120)
-    connector_type: str = Field(..., description="'web', 's3', 'fileshare', 'sql', or 'confluence'")
+    connector_type: str = Field(
+        ..., description="'web', 's3', 'fileshare', 'sql', 'confluence', or 'rest'"
+    )
     config_json: dict[str, Any] = Field(default_factory=dict)
     schedule_cron: str | None = None
 
@@ -192,6 +195,8 @@ async def test_connector(
             SqlConnector(connector.config_json).test_connection()
         elif connector.connector_type == "confluence":
             ConfluenceConnector(connector.config_json).test_connection()
+        elif connector.connector_type == "rest":
+            RestApiConnector(connector.config_json).test_connection()
         else:
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
@@ -244,12 +249,14 @@ async def sync_connector(
         conn = SqlConnector(connector.config_json)
     elif connector.connector_type == "confluence":
         conn = ConfluenceConnector(connector.config_json)
+    elif connector.connector_type == "rest":
+        conn = RestApiConnector(connector.config_json)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
 
-    from app.infrastructure.storage.service import get_storage_service, StorageService
-    from app.infrastructure.storage.paths import raw_key
     from app.domain.sources.dedup import find_source_by_checksum
+    from app.infrastructure.storage.paths import raw_key
+    from app.infrastructure.storage.service import StorageService, get_storage_service
     from app.worker.tasks.process_source import process_source
 
     storage = get_storage_service()

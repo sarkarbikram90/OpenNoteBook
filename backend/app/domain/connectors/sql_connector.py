@@ -28,11 +28,11 @@ without schema changes to the ``sources.source_type`` check constraint.
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from typing import Any
 
+from app.domain.connectors.acl import parse_acl
 from app.domain.connectors.base import BaseConnector, ExtractedDocument
 from app.domain.connectors.rate_limit import RateLimiter
 
@@ -74,24 +74,8 @@ class SqlConnector(BaseConnector):
 
     @staticmethod
     def _parse_acl(value: Any) -> list[str]:
-        """Parse an ACL cell that may be a list, JSON array string, or CSV."""
-        if value is None:
-            return []
-        if isinstance(value, (list, tuple, set)):
-            return [str(v) for v in value if v]
-        if isinstance(value, str):
-            text = value.strip()
-            if not text:
-                return []
-            if text.startswith("["):
-                try:
-                    parsed = json.loads(text)
-                    if isinstance(parsed, list):
-                        return [str(v) for v in parsed if v]
-                except json.JSONDecodeError:
-                    pass
-            return [part.strip() for part in text.split(",") if part.strip()]
-        return [str(value)]
+        """Parse an ACL cell (list, JSON array string, or CSV)."""
+        return parse_acl(value)
 
     @staticmethod
     def _coerce_datetime(value: Any) -> datetime | None:
