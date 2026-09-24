@@ -176,8 +176,7 @@ export interface SearchResponse {
 }
 
 /** Source summary */
-export interface SourceSummary {
-  id: string;
+export interface SourceSummary {  id: string;
   source_id: string;
   executive_summary: string;
   key_findings: string[];
@@ -187,5 +186,15 @@ export interface SourceSummary {
     concepts: string[];
   };
   suggested_questions: string[];
+  created_at: string;
+}
+
+/** Feedback */
+export type FeedbackRating = 'up' | 'down';
+
+export interface FeedbackResponse {
+  id: string;
+  message_id: string;
+  rating: FeedbackRating;
   created_at: string;
 }

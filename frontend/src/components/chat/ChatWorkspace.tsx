@@ -3,7 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, SlidersHorizontal } from 'lucide-react';
-import { useSessions, useMessages, useDeleteSession, useExportSession, chatKeys } from '@/hooks/useChat';
+import {
+  useSessions,
+  useMessages,
+  useDeleteSession,
+  useExportSession,
+  useSubmitFeedback,
+  chatKeys,
+} from '@/hooks/useChat';
 import { useSources } from '@/hooks/useSources';
 import { useStream } from '@/hooks/useStream';
 import { MessageBubble } from '@/components/chat/MessageBubble';
@@ -35,6 +42,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   // Mutations
   const deleteMutation = useDeleteSession(notebookId);
   const exportMutation = useExportSession();
+  const feedbackMutation = useSubmitFeedback();
 
   // Auto-select first session
   useEffect(() => {
@@ -193,6 +201,11 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
                     !stream.isStreaming
                   }
                   onRegenerate={handleRegenerate}
+                  onFeedback={
+                    msg.role === 'assistant'
+                      ? (rating) => feedbackMutation.mutate({ messageId: msg.id, rating })
+                      : undefined
+                  }
                 />
               ))}
 
@@ -204,6 +217,15 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
                   isStreaming={stream.isStreaming}
                   isLast={!stream.isStreaming}
                   onRegenerate={handleRegenerate}
+                  onFeedback={
+                    !stream.isStreaming && stream.messageId
+                      ? (rating) =>
+                          feedbackMutation.mutate({
+                            messageId: stream.messageId as string,
+                            rating,
+                          })
+                      : undefined
+                  }
                 />
               )}
 

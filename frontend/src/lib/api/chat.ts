@@ -4,6 +4,8 @@ import { apiFetch } from '@/lib/api';
 import type {
   ChatSessionListResponse,
   ChatSession,
+  FeedbackRating,
+  FeedbackResponse,
   MessageListResponse,
 } from '@/lib/types';
 
@@ -21,6 +23,18 @@ export async function getMessages(sessionId: string): Promise<MessageListRespons
 
 export async function deleteSession(sessionId: string): Promise<void> {
   return apiFetch<void>(`/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+/** Submit thumbs up/down feedback for an assistant message. */
+export async function submitFeedback(
+  messageId: string,
+  rating: FeedbackRating,
+  comment?: string,
+): Promise<FeedbackResponse> {
+  return apiFetch<FeedbackResponse>('/feedback', {
+    method: 'POST',
+    body: JSON.stringify({ message_id: messageId, rating, comment }),
+  });
 }
 
 export async function exportSession(

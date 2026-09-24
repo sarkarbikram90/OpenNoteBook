@@ -10,8 +10,10 @@ import {
   getMessages,
   deleteSession,
   exportSession,
+  submitFeedback,
 } from '@/lib/api/chat';
 import { addToast } from '@/stores/toast';
+import type { FeedbackRating } from '@/lib/types';
 
 /** Query key factory for chat. */
 export const chatKeys = {
@@ -51,6 +53,25 @@ export function useDeleteSession(notebookId: string) {
     },
     onError: (error) => {
       addToast('error', 'Failed to delete session', error.message);
+    },
+  });
+}
+
+/** Submit thumbs up/down feedback for an assistant message. */
+export function useSubmitFeedback() {
+  return useMutation({
+    mutationFn: ({
+      messageId,
+      rating,
+    }: {
+      messageId: string;
+      rating: FeedbackRating;
+    }) => submitFeedback(messageId, rating),
+    onSuccess: () => {
+      addToast('success', 'Thanks for your feedback');
+    },
+    onError: (error) => {
+      addToast('error', 'Failed to submit feedback', error.message);
     },
   });
 }

@@ -1,11 +1,11 @@
 /** OpenNotebook — Chat message bubble for user and assistant. */
 
 import { clsx } from 'clsx';
-import { Copy, Check, RotateCcw, User, Sparkles } from 'lucide-react';
+import { Copy, Check, RotateCcw, ThumbsDown, ThumbsUp, User, Sparkles } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import { StreamingText } from '@/components/chat/StreamingText';
 import { CitationList } from '@/components/chat/CitationChip';
-import type { Message, Citation } from '@/lib/types';
+import type { Message, Citation, FeedbackRating } from '@/lib/types';
 
 interface MessageBubbleProps {
   message?: Message;
@@ -19,6 +19,8 @@ interface MessageBubbleProps {
   isLast?: boolean;
   /** Callback to regenerate the answer. */
   onRegenerate?: () => void;
+  /** Callback to submit thumbs up/down feedback (assistant messages). */
+  onFeedback?: (rating: FeedbackRating) => void;
 }
 
 export function MessageBubble({
@@ -28,8 +30,10 @@ export function MessageBubble({
   isStreaming = false,
   isLast = false,
   onRegenerate,
+  onFeedback,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
+  const [rating, setRating] = useState<FeedbackRating | null>(null);
 
   const role = message?.role ?? 'assistant';
   const content = streamContent ?? message?.content ?? '';
@@ -40,6 +44,14 @@ export function MessageBubble({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [content]);
+
+  const handleFeedback = useCallback(
+    (value: FeedbackRating) => {
+      setRating(value);
+      onFeedback?.(value);
+    },
+    [onFeedback],
+  );
 
   const isUser = role === 'user';
 
@@ -96,6 +108,30 @@ export function MessageBubble({
                 <Copy className="h-3.5 w-3.5" />
               )}
             </button>
+            {!isUser && onFeedback && (
+              <>
+                <button
+                  onClick={() => handleFeedback('up')}
+                  className="rounded-md p-1 text-surface-400 transition-colors hover:text-emerald-400 hover:bg-surface-700/50"
+                  title="Good answer"
+                  aria-pressed={rating === 'up'}
+                >
+                  <ThumbsUp
+                    className={clsx('h-3.5 w-3.5', rating === 'up' && 'text-emerald-400')}
+                  />
+                </button>
+                <button
+                  onClick={() => handleFeedback('down')}
+                  className="rounded-md p-1 text-surface-400 transition-colors hover:text-red-400 hover:bg-surface-700/50"
+                  title="Poor answer"
+                  aria-pressed={rating === 'down'}
+                >
+                  <ThumbsDown
+                    className={clsx('h-3.5 w-3.5', rating === 'down' && 'text-red-400')}
+                  />
+                </button>
+              </>
+            )}
             {!isUser && isLast && onRegenerate && (
               <button
                 onClick={onRegenerate}
