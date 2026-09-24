@@ -133,6 +133,46 @@ def _get_source_record(source_id: str) -> dict:
         session.close()
 
 
+def _persist_processed_artifacts(
+    source_id: str,
+    text: str,
+    chunk_count: int,
+    pii_entities: dict[str, int],
+    sensitivity_level: str,
+    notebook_id: str,
+) -> None:
+    """Write the redacted text and processing metadata to the lake under processed/."""
+    import json
+    from datetime import datetime, timezone
+
+    from app.infrastructure.storage.paths import (
+        processed_document_key,
+        processed_metadata_key,
+    )
+    from app.infrastructure.storage.service import get_storage_service
+
+    storage = get_storage_service()
+    storage.upload_artifact(
+        (text or "").encode("utf-8"),
+        processed_document_key(source_id),
+        content_type="text/plain; charset=utf-8",
+    )
+    metadata = {
+        "source_id": source_id,
+        "notebook_id": notebook_id,
+        "chunk_count": chunk_count,
+        "pii_entities": pii_entities,
+        "sensitivity_level": sensitivity_level,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    storage.upload_artifact(
+        json.dumps(metadata).encode("utf-8"),
+        processed_metadata_key(source_id),
+        content_type="application/json",
+    )
+    logger.info("Persisted processed artifacts for source %s", source_id)
+
+
 @celery_app.task(
     bind=True,
     name="app.worker.tasks.process_source",
@@ -154,7 +194,7 @@ def process_source(self, source_id: str) -> dict:
     from app.domain.sources.embedder import embed_texts
     from app.domain.sources.bm25_index import build_bm25_index
     from app.infrastructure.storage.service import get_storage_service
-    from app.domain.governance.pii import PIIScrubber
+    from app.domain.governance.pii_engine import get_pii_scrubber
     from app.infrastructure.qdrant.client import upsert_chunks, ChunkPayload, delete_by_source
 
     settings = get_settings()
@@ -191,26 +231,29 @@ def process_source(self, source_id: str) -> dict:
         page_count = extraction.metadata.get("page_count", len(extraction.pages))
 
         # ── Step 1b: GOVERNANCE & PII REDACTION ─────────────────────────
-        scrubber = PIIScrubber()
         total_pii_redacted = 0
         pii_entities: dict[str, int] = {}
 
-        for p in extraction.pages:
-            scrub_res = scrubber.scrub(p.text)
-            p.text = scrub_res.cleaned_text
-            total_pii_redacted += scrub_res.total_redacted
-            for k, v in scrub_res.entities_found.items():
-                pii_entities[k] = pii_entities.get(k, 0) + v
+        if settings.pii_redaction_enabled:
+            scrubber = get_pii_scrubber()
+            for p in extraction.pages:
+                scrub_res = scrubber.scrub(p.text)
+                p.text = scrub_res.cleaned_text
+                total_pii_redacted += scrub_res.total_redacted
+                for k, v in scrub_res.entities_found.items():
+                    pii_entities[k] = pii_entities.get(k, 0) + v
 
-        if hasattr(extraction, "text") and extraction.text:
-            scrub_res = scrubber.scrub(extraction.text)
-            extraction.text = scrub_res.cleaned_text
+            if hasattr(extraction, "text") and extraction.text:
+                scrub_res = scrubber.scrub(extraction.text)
+                extraction.text = scrub_res.cleaned_text
 
-        if total_pii_redacted > 0:
-            logger.info(
-                "Sanitized %d PII entities in source %s: %s",
-                total_pii_redacted, source_id, pii_entities,
-            )
+            if total_pii_redacted > 0:
+                logger.info(
+                    "Sanitized %d PII entities in source %s: %s",
+                    total_pii_redacted, source_id, pii_entities,
+                )
+        else:
+            logger.info("PII redaction disabled by configuration; skipping scrub for %s", source_id)
 
         # ── Step 2: CHUNKING ────────────────────────────────────────────
         _update_source_status(source_id, "CHUNKING", page_count=page_count)
@@ -220,6 +263,16 @@ def process_source(self, source_id: str) -> dict:
             source_id=source_id,
             notebook_id=notebook_id,
             embedding_model=settings.embedding_model,
+        )
+
+        # ── Step 2b: PERSIST PROCESSED ARTIFACTS TO DATA LAKE ───────────
+        _persist_processed_artifacts(
+            source_id=source_id,
+            text=extraction.text,
+            chunk_count=len(chunks),
+            pii_entities=pii_entities,
+            sensitivity_level=sensitivity_level,
+            notebook_id=notebook_id,
         )
 
         if not chunks:

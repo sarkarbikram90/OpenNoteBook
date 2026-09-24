@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.audit import record_audit_event
+from app.domain.connectors.local_fileshare import LocalFileShareConnector
 from app.domain.connectors.web import WebConnector
 from app.domain.connectors.s3_connector import S3BucketConnector
 from app.infrastructure.db.models import ConnectorConfig, Notebook, Source, WorkspaceMember
@@ -36,7 +37,7 @@ class ConnectorCreateRequest(BaseModel):
     workspace_id: uuid.UUID
     notebook_id: uuid.UUID | None = None
     name: str = Field(..., min_length=1, max_length=120)
-    connector_type: str = Field(..., description="'web' or 's3'")
+    connector_type: str = Field(..., description="'web', 's3', or 'fileshare'")
     config_json: dict[str, Any] = Field(default_factory=dict)
     schedule_cron: str | None = None
 
@@ -183,6 +184,8 @@ async def test_connector(
         elif connector.connector_type == "s3":
             conn = S3BucketConnector(connector.config_json)
             conn.test_connection()
+        elif connector.connector_type == "fileshare":
+            LocalFileShareConnector(connector.config_json).test_connection()
         else:
             raise ValueError(f"Unsupported connector type: {connector.connector_type}")
 
@@ -223,28 +226,46 @@ async def sync_connector(
         conn = WebConnector(connector.config_json)
     elif connector.connector_type == "s3":
         conn = S3BucketConnector(connector.config_json)
+    elif connector.connector_type == "fileshare":
+        conn = LocalFileShareConnector(connector.config_json)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported connector type: {connector.connector_type}")
 
     from app.infrastructure.storage.service import get_storage_service, StorageService
+    from app.infrastructure.storage.paths import raw_key
+    from app.domain.sources.dedup import find_source_by_checksum
     from app.worker.tasks.process_source import process_source
 
     storage = get_storage_service()
     docs = conn.sync()
 
+    synced = 0
+    skipped = 0
     for doc in docs:
-        source_id = uuid.uuid4()
         raw_bytes = doc.content if isinstance(doc.content, bytes) else doc.content.encode("utf-8")
-        clean_title = doc.title.replace(" ", "_").replace("/", "_")
-        filename = f"{clean_title}.{doc.source_type}" if not clean_title.endswith(f".{doc.source_type}") else clean_title
-        storage_path = f"sources/{source_id}/{filename}"
+        file_hash = StorageService.calculate_file_hash(raw_bytes)
+
+        # Deduplicate: skip documents already ingested into this notebook.
+        if await find_source_by_checksum(db, connector.notebook_id, file_hash) is not None:
+            skipped += 1
+            continue
+
+        source_id = uuid.uuid4()
+        content_type = (
+            "text/plain" if doc.source_type in ("txt", "md", "url") else "application/octet-stream"
+        )
+        filename = (
+            doc.title
+            if doc.title.lower().endswith(f".{doc.source_type}")
+            else f"{doc.title}.{doc.source_type}"
+        )
+        storage_path = raw_key(str(connector.notebook_id), str(source_id), filename)
 
         storage.upload_raw_document(
             data=raw_bytes,
             object_name=storage_path,
-            content_type="text/plain" if doc.source_type in ("txt", "md", "url") else "application/octet-stream",
+            content_type=content_type,
         )
-        file_hash = StorageService.calculate_file_hash(raw_bytes)
 
         source = Source(
             id=source_id,
@@ -254,14 +275,22 @@ async def sync_connector(
             source_url=doc.url,
             storage_path=storage_path,
             storage_type=storage.provider,
+            content_type=content_type,
+            checksum=file_hash,
             status="PENDING",
-            metadata_={"sha256": file_hash, "size_bytes": len(raw_bytes), "connector_id": str(connector_id)},
+            metadata_={
+                "sha256": file_hash,
+                "size_bytes": len(raw_bytes),
+                "connector_id": str(connector_id),
+                **(doc.metadata or {}),
+            },
         )
         db.add(source)
         await db.flush()
 
         # Queue processing task
         process_source.delay(str(source_id))
+        synced += 1
 
     connector.last_sync_at = datetime.now(UTC)
     connector.status = "ACTIVE"
@@ -274,11 +303,11 @@ async def sync_connector(
         resource_type="connector",
         resource_id=str(connector.id),
         user_id=user.id,
-        details={"documents_synced": len(docs)},
+        details={"documents_synced": synced, "documents_skipped": skipped},
     )
 
     return ConnectorSyncResponse(
         connector_id=connector.id,
-        documents_synced=len(docs),
+        documents_synced=synced,
         status="ACTIVE",
     )

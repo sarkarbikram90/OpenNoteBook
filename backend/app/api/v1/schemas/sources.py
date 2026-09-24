@@ -41,6 +41,8 @@ class SourceResponse(BaseModel):
     embedding_model: str | None = None
     storage_path: str | None = None
     source_url: str | None = None
+    checksum: str | None = None
+    content_type: str | None = None
     metadata_: dict[str, Any] = Field(default_factory=dict, alias="metadata_")
     created_at: datetime
     updated_at: datetime
@@ -63,6 +65,7 @@ class SourceUploadResponse(BaseModel):
     source_id: uuid.UUID
     status: str = "PENDING"
     message: str = "Source uploaded and queued for processing"
+    duplicate: bool = False
 
 
 # ── SSE Event Schemas ───────────────────────────────────────────────────────

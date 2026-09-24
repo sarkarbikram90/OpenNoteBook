@@ -23,7 +23,9 @@ from app.api.v1.schemas.sources import (
 from app.core.audit import record_audit_event
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
+from app.domain.sources.dedup import find_source_by_checksum
 from app.infrastructure.db.models import Notebook, Source
+from app.infrastructure.storage.paths import raw_key
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/sources", tags=["sources"])
 
@@ -126,13 +128,37 @@ async def upload_file_source(
         )
 
     # Upload to Data Lake (MinIO/S3 with local lake fallback)
-    source_id = uuid.uuid4()
-    object_name = f"sources/{source_id}/{file.filename}"
-
     from app.infrastructure.storage.service import get_storage_service, StorageService
-    storage = get_storage_service()
-    storage.upload_raw_document(content, object_name, content_type=file.content_type or "application/octet-stream")
+
     file_hash = StorageService.calculate_file_hash(content)
+
+    # Deduplicate: skip if an identical document already exists in this notebook.
+    existing = await find_source_by_checksum(db, notebook_id, file_hash)
+    if existing is not None:
+        await record_audit_event(
+            db=db,
+            action="source.upload.duplicate",
+            resource_type="source",
+            resource_id=str(existing.id),
+            user_id=user.id,
+            details={"name": file.filename, "checksum": file_hash},
+        )
+        return SourceUploadResponse(
+            source_id=existing.id,
+            status=existing.status,
+            message="Duplicate document detected; using existing source",
+            duplicate=True,
+        )
+
+    source_id = uuid.uuid4()
+    object_name = raw_key(str(notebook_id), str(source_id), file.filename)
+
+    storage = get_storage_service()
+    storage.upload_raw_document(
+        content,
+        object_name,
+        content_type=file.content_type or "application/octet-stream",
+    )
 
     # Create source record with provenance metadata
     source = Source(
@@ -142,6 +168,8 @@ async def upload_file_source(
         source_type=source_type,
         storage_path=object_name,
         storage_type=storage.provider,
+        content_type=file.content_type,
+        checksum=file_hash,
         status="PENDING",
         metadata_={"sha256": file_hash, "size_bytes": len(content)},
     )

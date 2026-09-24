@@ -46,7 +46,8 @@ class StorageService:
 
         Args:
             data: File bytes.
-            object_name: Storage key/path (e.g. ``raw/{org_id}/{workspace_id}/{source_id}/{filename}``).
+            object_name: Storage key/path. Build keys with
+                ``app.infrastructure.storage.paths`` (raw_key / processed_key).
             content_type: MIME type.
             metadata: Optional dictionary of provenance metadata.
 
@@ -70,6 +71,15 @@ class StorageService:
                 return self._upload_local(data, clean_object_name)
 
         return self._upload_local(data, clean_object_name)
+
+    def upload_artifact(
+        self,
+        data: bytes,
+        object_name: str,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Store a processed/derived artifact (same backend as raw documents)."""
+        return self.upload_raw_document(data, object_name, content_type=content_type)
 
     def download_raw_document(self, object_name: str) -> bytes:
         """Retrieve raw file content from the data lake.

@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     max_history_messages: int = 10
 
+    # ── Governance / PII ─────────────────────────
+    pii_engine: str = "auto"  # "regex" | "presidio" | "auto"
+    pii_redaction_enabled: bool = True
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

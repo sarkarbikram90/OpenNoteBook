@@ -191,6 +191,7 @@ class Source(Base):
             name="ck_sources_source_type",
         ),
         Index("ix_sources_notebook_id", "notebook_id"),
+        Index("ix_sources_checksum", "checksum"),
     )
 
     notebook_id: Mapped[uuid.UUID] = mapped_column(
@@ -211,6 +212,8 @@ class Source(Base):
     pii_redacted: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     pii_entities_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     storage_type: Mapped[str] = mapped_column(Text, server_default="minio", nullable=False)
+    checksum: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, server_default="{}", nullable=False
     )
