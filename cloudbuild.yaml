@@ -1,0 +1,55 @@
+# Google Cloud Build — build & push all OpenNotebook images.
+#
+# Usage:
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_REPO=opennotebook,_TAG=latest .
+#
+# Note: each image uses its own Dockerfile and build context:
+#   api      -> backend/Dockerfile   (context ./backend)
+#   worker   -> worker/Dockerfile    (context .  — copies backend/)
+#   frontend -> frontend/Dockerfile  (context ./frontend)
+
+substitutions:
+  _REGION: us-central1
+  _REPO: opennotebook
+  _TAG: latest
+
+steps:
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:${_TAG}
+      - ./backend
+
+  - id: build-worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - worker/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/worker:${_TAG}
+      - .
+
+  - id: build-frontend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:${_TAG}
+      - ./frontend
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/api:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/worker:${_TAG}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/frontend:${_TAG}
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
