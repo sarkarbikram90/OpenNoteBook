@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -51,23 +52,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("SQLAlchemy instrumentation failed: %s", e)
 
-    # Ensure MinIO bucket exists (best-effort, non-blocking)
+    # Ensure MinIO bucket and Qdrant collection concurrently (best-effort, non-blocking)
+    async def _safe_init(fn: Any, name: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=1.5)
+            logger.info("%s ensured", name)
+        except Exception as e:
+            logger.warning("%s init skipped/failed (may not be available yet): %s", name, e)
+
     try:
         from app.infrastructure.minio.client import ensure_bucket
-        loop = asyncio.get_running_loop()
-        await asyncio.wait_for(loop.run_in_executor(None, ensure_bucket), timeout=2.0)
-        logger.info("MinIO bucket ensured")
-    except Exception as e:
-        logger.warning("MinIO bucket init skipped/failed (may not be available yet): %s", e)
-
-    # Ensure Qdrant collection exists (best-effort, non-blocking)
-    try:
         from app.infrastructure.qdrant.client import ensure_collection
-        loop = asyncio.get_running_loop()
-        await asyncio.wait_for(loop.run_in_executor(None, ensure_collection), timeout=2.0)
-        logger.info("Qdrant collection ensured")
+
+        await asyncio.gather(
+            _safe_init(ensure_bucket, "MinIO bucket"),
+            _safe_init(ensure_collection, "Qdrant collection"),
+        )
     except Exception as e:
-        logger.warning("Qdrant collection init skipped/failed (may not be available yet): %s", e)
+        logger.warning("Startup service initialization skipped: %s", e)
 
     yield
 

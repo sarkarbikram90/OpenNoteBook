@@ -137,6 +137,8 @@ jobs:
             APP_ENV=production
             LOG_FORMAT=json
             LOG_LEVEL=INFO
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
+            MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
 
       - name: Deploy Frontend to Cloud Run
         id: deploy-frontend
