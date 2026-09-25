@@ -11,6 +11,9 @@ env:
   GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION || secrets.GAR_LOCATION || 'us-central1-docker.pkg.dev' }}
   REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
   REPOSITORY: opennotebook
+  WIF_PROVIDER: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || 'opennotebook-deployer@founders-club-507318.iam.gserviceaccount.com' }}
+  GCP_SA_KEY: ${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
 jobs:
   verify:
@@ -50,27 +53,25 @@ jobs:
 
       - name: Validate GCP Authentication Configuration
         run: |
-          HAS_KEY="${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}"
-          HAS_WIF="${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}"
-          if [ -z "$HAS_KEY" ] && [ -z "$HAS_WIF" ]; then
+          if [ -z "$WIF_PROVIDER" ] && [ -z "$GCP_SA_KEY" ]; then
             echo "::error::No GCP authentication configured! Please provide either Workload Identity Federation ('WIF_PROVIDER') or Service Account Key ('GCP_SA_KEY') in GitHub Repository Settings (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
 
       - name: Google Auth (Workload Identity Federation)
         id: auth-wif
-        if: ${{ secrets.WIF_PROVIDER != '' || secrets.WORKLOAD_IDENTITY_PROVIDER != '' }}
+        if: env.WIF_PROVIDER != ''
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || format('opennotebook-deployer@{0}.iam.gserviceaccount.com', env.PROJECT_ID) }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
 
       - name: Google Auth (Service Account Key)
         id: auth-key
-        if: ${{ (secrets.WIF_PROVIDER == '' && secrets.WORKLOAD_IDENTITY_PROVIDER == '') && (secrets.GCP_SA_KEY != '' || secrets.GCP_CREDENTIALS != '' || secrets.GOOGLE_CREDENTIALS != '' || secrets.GCP_SERVICE_ACCOUNT_KEY != '') }}
+        if: env.WIF_PROVIDER == '' && env.GCP_SA_KEY != ''
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          credentials_json: ${{ env.GCP_SA_KEY }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
