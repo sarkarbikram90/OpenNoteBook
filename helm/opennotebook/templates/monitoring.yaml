@@ -26,6 +26,8 @@ spec:
       labels:
         app: opennotebook-prometheus
     spec:
+      securityContext:
+        fsGroup: 65534
       containers:
         - name: prometheus
           image: prom/prometheus:latest
@@ -81,6 +83,8 @@ spec:
       labels:
         app: opennotebook-loki
     spec:
+      securityContext:
+        fsGroup: 10001
       containers:
         - name: loki
           image: grafana/loki:latest
@@ -196,6 +200,8 @@ spec:
       labels:
         app: opennotebook-grafana
     spec:
+      securityContext:
+        fsGroup: 472
       containers:
         - name: grafana
           image: grafana/grafana:latest

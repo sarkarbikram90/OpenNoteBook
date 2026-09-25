@@ -28,6 +28,8 @@ spec:
       labels:
         app: opennotebook-postgres
     spec:
+      securityContext:
+        fsGroup: 999
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
