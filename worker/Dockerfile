@@ -5,7 +5,8 @@ FROM python:3.12-slim AS base
 
 # Prevent Python from writing .pyc files and enable unbuffered output
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/appuser
 
 # Install system dependencies
 RUN apt-get update && \
@@ -25,12 +26,13 @@ WORKDIR /app
 # Copy dependency manifest from backend (shared codebase)
 COPY backend/pyproject.toml ./
 
-# Install Python dependencies
+# Install Python dependencies (CPU-only PyTorch to keep image lightweight)
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir .
 
 # Copy backend application source (worker uses the same code)
-COPY backend/ .
+COPY --chown=appuser:appuser backend/ .
 
 # Switch to non-root user
 USER appuser

@@ -27,8 +27,9 @@ WORKDIR /app
 # Copy dependency manifest first (layer caching)
 COPY pyproject.toml ./
 
-# Install Python dependencies
+# Install Python dependencies (CPU-only PyTorch to keep image lightweight)
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir .
 
 # Copy application source
