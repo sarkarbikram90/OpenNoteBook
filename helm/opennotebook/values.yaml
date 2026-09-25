@@ -114,6 +114,9 @@ qdrant:
       memory: "512Mi"
 
 minio:
+  # Public MinIO images are no longer published. Disabled by default; local dev
+  # uses STORAGE_PROVIDER=local. Enable only with a working image/endpoint.
+  enabled: false
   image: minio/minio:latest
   storageSize: 20Gi
   resources:
@@ -139,7 +142,8 @@ ollama:
   image: ollama/ollama:latest
   storageSize: 50Gi
   gpu:
-    enabled: true
+    # Set true only on a cluster with an NVIDIA GPU node pool + taint toleration.
+    enabled: false
     type: "nvidia.com/gpu"
     count: 1
   resources:

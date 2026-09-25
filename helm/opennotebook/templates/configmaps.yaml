@@ -15,6 +15,10 @@ data:
   MINIO_ENDPOINT: "opennotebook-minio:9000"
   MINIO_SECURE: "false"
   MINIO_BUCKET: "opennotebook"
+  # Storage backend: use MinIO only when its deployment is enabled, else the
+  # in-pod filesystem (ephemeral; mount a PVC at LOCAL_STORAGE_PATH for prod).
+  STORAGE_PROVIDER: {{ if .Values.minio.enabled }}"minio"{{ else }}"local"{{ end }}
+  LOCAL_STORAGE_PATH: "/app/data/lake"
   QDRANT_URL: "http://opennotebook-qdrant:6333"
   QDRANT_COLLECTION: "opennotebook_chunks"
   OLLAMA_BASE_URL: "http://opennotebook-ollama:11434"

@@ -33,8 +33,6 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-      minio:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -67,8 +65,6 @@ services:
       redis:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
-      minio:
         condition: service_healthy
       ollama:
         condition: service_started
@@ -173,27 +169,9 @@ services:
     networks:
       - opennotebook
 
-  minio:
-    image: minio/minio:latest
-    container_name: opennotebook-minio
-    ports:
-      - "${MINIO_API_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      start_period: 15s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - opennotebook
+  # MinIO removed: its public Docker images are no longer available.
+  # Local dev uses the filesystem storage provider (STORAGE_PROVIDER=local).
+  # For S3-compatible storage, point STORAGE_PROVIDER=s3 at an external endpoint.
 
   redis:
     image: redis:7-alpine
