@@ -88,7 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 result = await session.execute(select(User).limit(1))
                 if result.scalar_one_or_none() is None:
                     demo_user = User(
-                        email="demo@opennotebook.local",
+                        email="demo@example.com",
                         password_hash=hash_password("password123"),
                         is_active=True,
                     )
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     await session.flush()
                     session.add(UserSettings(user_id=demo_user.id))
                     await session.commit()
-                    logger.info("Default demo user seeded: demo@opennotebook.local / password123")
+                    logger.info("Default demo user seeded: demo@example.com / password123")
 
         await asyncio.wait_for(_init_db(), timeout=5.0)
         logger.info("Database schema and demo user verified")
