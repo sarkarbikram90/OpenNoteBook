@@ -132,7 +132,7 @@ jobs:
             --allow-unauthenticated
             --port=8080
             --memory=1Gi
-            --startup-cpu-boost
+            --cpu-boost
           env_vars: |
             APP_ENV=production
             LOG_FORMAT=json
