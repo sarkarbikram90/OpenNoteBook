@@ -76,7 +76,10 @@ podDisruptionBudget:
   minAvailable: 1
 
 networkPolicy:
-  enabled: true
+  # Default-deny only allows intra-namespace traffic, which blocks the GCLB/
+  # ingress unless you add an explicit allow rule. Enable once your ingress
+  # source ranges are allowed.
+  enabled: false
 
 # ── Frontend Service (React + Nginx) ────────────────────────────────────────
 frontend:
