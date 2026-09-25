@@ -41,6 +41,8 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown hooks."""
+    import asyncio
+
     # ── Startup ─────────────────────────────────────────────────────────
     # Instrument SQLAlchemy
     try:
@@ -49,21 +51,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("SQLAlchemy instrumentation failed: %s", e)
 
-    # Ensure MinIO bucket exists
+    # Ensure MinIO bucket exists (best-effort, non-blocking)
     try:
         from app.infrastructure.minio.client import ensure_bucket
-        ensure_bucket()
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, ensure_bucket), timeout=2.0)
         logger.info("MinIO bucket ensured")
     except Exception as e:
-        logger.warning("MinIO bucket init failed (may not be available yet): %s", e)
+        logger.warning("MinIO bucket init skipped/failed (may not be available yet): %s", e)
 
-    # Ensure Qdrant collection exists
+    # Ensure Qdrant collection exists (best-effort, non-blocking)
     try:
         from app.infrastructure.qdrant.client import ensure_collection
-        ensure_collection()
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, ensure_collection), timeout=2.0)
         logger.info("Qdrant collection ensured")
     except Exception as e:
-        logger.warning("Qdrant collection init failed (may not be available yet): %s", e)
+        logger.warning("Qdrant collection init skipped/failed (may not be available yet): %s", e)
 
     yield
 

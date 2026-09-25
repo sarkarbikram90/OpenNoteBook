@@ -38,9 +38,9 @@ USER appuser
 # Expose API port
 EXPOSE 8000
 
-# Health check
+# Health check (honors $PORT for Cloud Run; defaults to 8000 elsewhere)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/api/v1/health || exit 1
 
 # Start the application (honors $PORT for Cloud Run; defaults to 8000 elsewhere)
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
