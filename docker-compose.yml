@@ -111,6 +111,7 @@ services:
       - "${FRONTEND_PORT:-5173}:5173"
     environment:
       - VITE_API_URL=http://localhost:${API_PORT:-8000}
+      - VITE_PROXY_TARGET=http://api:8000
     volumes:
       - ./frontend:/app
       - /app/node_modules
