@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────
     database_url: str = "postgresql+asyncpg://opennotebook:opennotebook@localhost:5432/opennotebook"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def parse_database_url(cls, v: str) -> str:
+        """Handle empty string and normalize postgresql:// or postgres:// to postgresql+asyncpg://."""
+        if not v or not isinstance(v, str) or not v.strip():
+            return "postgresql+asyncpg://opennotebook:opennotebook@localhost:5432/opennotebook"
+        val = v.strip()
+        if val.startswith("postgres://"):
+            val = "postgresql+asyncpg://" + val[len("postgres://"):]
+        elif val.startswith("postgresql://") and not val.startswith("postgresql+asyncpg://"):
+            val = "postgresql+asyncpg://" + val[len("postgresql://"):]
+        return val
+
     # ── Auth (JWT) ───────────────────────────────
     jwt_secret_key: str = "change-me-to-a-random-64-char-string"
     jwt_algorithm: str = "HS256"

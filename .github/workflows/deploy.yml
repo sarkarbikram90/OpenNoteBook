@@ -14,6 +14,7 @@ env:
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
   WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || 'opennotebook-deployer@founders-club-507318.iam.gserviceaccount.com' }}
   GCP_SA_KEY: ${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
   verify:
@@ -148,6 +149,7 @@ jobs:
             LOG_LEVEL=INFO
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
             MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
+            ${{ env.DATABASE_URL != '' && format('DATABASE_URL={0}', env.DATABASE_URL) || '' }}
 
       - name: Deploy Frontend to Cloud Run
         id: deploy-frontend

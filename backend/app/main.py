@@ -72,6 +72,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("Startup service initialization skipped: %s", e)
 
+    # Ensure database schema exists and seed demo user (best-effort, non-blocking)
+    try:
+        from app.infrastructure.db.base import Base
+        import app.infrastructure.db.models  # noqa: F401
+        from app.infrastructure.db.session import AsyncSessionLocal
+        from app.infrastructure.db.models import User, UserSettings
+        from app.core.auth import hash_password
+        from sqlalchemy import select
+
+        async def _init_db() -> None:
+            async with async_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(User).limit(1))
+                if result.scalar_one_or_none() is None:
+                    demo_user = User(
+                        email="demo@opennotebook.local",
+                        password_hash=hash_password("password123"),
+                        is_active=True,
+                    )
+                    session.add(demo_user)
+                    await session.flush()
+                    session.add(UserSettings(user_id=demo_user.id))
+                    await session.commit()
+                    logger.info("Default demo user seeded: demo@opennotebook.local / password123")
+
+        await asyncio.wait_for(_init_db(), timeout=5.0)
+        logger.info("Database schema and demo user verified")
+    except Exception as e:
+        logger.warning("Database schema init skipped/failed (db may not be connected yet): %s", e)
+
     yield
 
     # ── Shutdown ────────────────────────────────────────────────────────
