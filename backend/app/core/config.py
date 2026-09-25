@@ -34,14 +34,39 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def parse_database_url(cls, v: str) -> str:
-        """Handle empty string and normalize postgresql:// or postgres:// to postgresql+asyncpg://."""
+        """Handle empty string, normalize driver, escape passwords, and adapt IPv6-only hosts."""
+        import re
+        import urllib.parse
+
         if not v or not isinstance(v, str) or not v.strip():
             return "postgresql+asyncpg://opennotebook:opennotebook@localhost:5432/opennotebook"
+
         val = v.strip()
         if val.startswith("postgres://"):
             val = "postgresql+asyncpg://" + val[len("postgres://"):]
         elif val.startswith("postgresql://") and not val.startswith("postgresql+asyncpg://"):
             val = "postgresql+asyncpg://" + val[len("postgresql://"):]
+
+        # Handle unescaped characters in password and adapt Supabase direct hosts
+        if "://" in val and "@" in val:
+            scheme, rest = val.split("://", 1)
+            userinfo, hostinfo = rest.rsplit("@", 1)
+            if ":" in userinfo:
+                user, password = userinfo.split(":", 1)
+                encoded_pwd = urllib.parse.quote(urllib.parse.unquote(password), safe="")
+
+                # Auto-adapt direct Supabase IPv6-only host to IPv4 session pooler for serverless runtimes
+                m = re.match(r"db\.([a-z0-9]+)\.supabase\.co(?::(\d+))?(.*)", hostinfo)
+                if m:
+                    ref = m.group(1)
+                    port = m.group(2) or "5432"
+                    rest_path = m.group(3) or "/postgres"
+                    if not user.endswith(f".{ref}"):
+                        user = f"{user}.{ref}"
+                    hostinfo = f"aws-0-ap-south-1.pooler.supabase.com:{port}{rest_path}"
+
+                val = f"{scheme}://{user}:{encoded_pwd}@{hostinfo}"
+
         return val
 
     # ── Auth (JWT) ───────────────────────────────
