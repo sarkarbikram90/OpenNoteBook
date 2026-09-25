@@ -80,6 +80,17 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ env.GAR_LOCATION }} --quiet
 
+      - name: Ensure Artifact Registry Repository Exists
+        run: |
+          if ! gcloud artifacts repositories describe ${{ env.REPOSITORY }} --location=${{ env.REGION }} --project=${{ env.PROJECT_ID }} >/dev/null 2>&1; then
+            echo "Repository '${{ env.REPOSITORY }}' does not exist in region '${{ env.REGION }}'. Attempting auto-creation..."
+            gcloud artifacts repositories create ${{ env.REPOSITORY }} \
+              --repository-format=docker \
+              --location=${{ env.REGION }} \
+              --project=${{ env.PROJECT_ID }} \
+              --description="OpenNotebook Docker images" || true
+          fi
+
       # ── Build and Push Docker Images ──────────────────────────────────────
 
       - name: Build & Push API Image
