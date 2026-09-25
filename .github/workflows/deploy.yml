@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || secrets.GCP_PROJECT || secrets.PROJECT_ID }}
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || secrets.GCP_PROJECT || secrets.PROJECT_ID || 'founders-club-507318' }}
   GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION || secrets.GAR_LOCATION || 'us-central1-docker.pkg.dev' }}
   REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
   REPOSITORY: opennotebook
@@ -38,31 +38,38 @@ jobs:
     name: Build, Push, and Deploy
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       # ── Google Cloud Authentication ──────────────────────────────────────────
 
-      - name: Validate GCP Credentials
+      - name: Validate GCP Authentication Configuration
         run: |
-          if [ -z "${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}" ]; then
-            echo "::error::GCP Service Account Key is missing! Please configure the 'GCP_SA_KEY' secret in GitHub Repository Settings (Settings -> Secrets and variables -> Actions)."
+          HAS_KEY="${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}"
+          HAS_WIF="${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}"
+          if [ -z "$HAS_KEY" ] && [ -z "$HAS_WIF" ]; then
+            echo "::error::No GCP authentication configured! Please provide either Workload Identity Federation ('WIF_PROVIDER') or Service Account Key ('GCP_SA_KEY') in GitHub Repository Settings (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
 
-      - name: Google Auth
-        id: auth
+      - name: Google Auth (Workload Identity Federation)
+        id: auth-wif
+        if: ${{ secrets.WIF_PROVIDER != '' || secrets.WORKLOAD_IDENTITY_PROVIDER != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || format('opennotebook-deployer@{0}.iam.gserviceaccount.com', env.PROJECT_ID) }}
+
+      - name: Google Auth (Service Account Key)
+        id: auth-key
+        if: ${{ (secrets.WIF_PROVIDER == '' && secrets.WORKLOAD_IDENTITY_PROVIDER == '') && (secrets.GCP_SA_KEY != '' || secrets.GCP_CREDENTIALS != '' || secrets.GOOGLE_CREDENTIALS != '' || secrets.GCP_SERVICE_ACCOUNT_KEY != '') }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}
-
-      - name: Set Project ID from Auth
-        run: |
-          if [ -z "${{ env.PROJECT_ID }}" ]; then
-            echo "PROJECT_ID=${{ steps.auth.outputs.project_id }}" >> $GITHUB_ENV
-            echo "Using PROJECT_ID from service account key: ${{ steps.auth.outputs.project_id }}"
-          fi
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
