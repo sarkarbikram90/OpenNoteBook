@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from jose import JWTError
 
+import app.infrastructure.redis.client
 from app.core.auth import (
     _revoked_jtis,
     create_access_token,

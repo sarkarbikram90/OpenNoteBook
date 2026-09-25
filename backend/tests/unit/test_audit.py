@@ -14,6 +14,7 @@ from app.infrastructure.db.models import AuditLog
 async def test_record_audit_event_success() -> None:
     """Validate that audit events are properly constructed and flushed to the database."""
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     user_id = uuid.uuid4()
     resource_id = str(uuid.uuid4())
 
@@ -40,6 +41,7 @@ async def test_record_audit_event_success() -> None:
 async def test_record_audit_event_handles_db_exception() -> None:
     """Audit recording failure should not crash the caller."""
     mock_db = AsyncMock()
+    mock_db.add = MagicMock()
     mock_db.flush.side_effect = Exception("DB Connection Error")
 
     entry = await record_audit_event(

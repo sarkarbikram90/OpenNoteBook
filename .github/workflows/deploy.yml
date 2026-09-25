@@ -8,9 +8,8 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION }} # e.g. us-central1-docker.pkg.dev
+  REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
   REPOSITORY: opennotebook
-  GKE_CLUSTER: opennotebook-cluster
-  GKE_ZONE: us-central1-a
 
 jobs:
   verify:
@@ -81,33 +80,36 @@ jobs:
           docker build -t ${IMAGE_NAME} ./frontend
           docker push ${IMAGE_NAME}
 
-      # ── GKE Credentials & Helm Deployment ──────────────────────────────────
+      # ── Deploy to GCP Cloud Run ──────────────────────────────────────────
 
-      - name: Get GKE Credentials
-        uses: google-github-actions/get-gke-credentials@v2
+      - name: Deploy API to Cloud Run
+        id: deploy-api
+        uses: google-github-actions/deploy-cloudrun@v2
         with:
-          cluster_name: ${{ env.GKE_CLUSTER }}
-          location: ${{ env.GKE_ZONE }}
+          service: opennotebook-api
+          image: ${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:${{ github.sha }}
+          region: ${{ env.REGION }}
+          flags: '--allow-unauthenticated'
+          env_vars: |
+            APP_ENV=production
+            LOG_FORMAT=json
+            LOG_LEVEL=INFO
 
-      - name: Install Helm
-        uses: azure/setup-helm@v4
+      - name: Deploy Frontend to Cloud Run
+        id: deploy-frontend
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: opennotebook-frontend
+          image: ${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/frontend:${{ github.sha }}
+          region: ${{ env.REGION }}
+          flags: '--allow-unauthenticated'
+          env_vars: |
+            BACKEND_URL=${{ steps.deploy-api.outputs.url }}
 
-      - name: Deploy Helm Chart
+      - name: Verify Cloud Run Deployments
         run: |
-          TAG=${{ github.sha }}
-          helm upgrade --install opennotebook ./helm/opennotebook \
-            --namespace opennotebook \
-            --create-namespace \
-            --set global.tag=${TAG} \
-            --set global.registry=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }} \
-            --set secrets.jwtSecretKey="${{ secrets.JWT_SECRET_KEY }}" \
-            --set secrets.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
-            --set secrets.minioAccessKey="${{ secrets.MINIO_ACCESS_KEY }}" \
-            --set secrets.minioSecretKey="${{ secrets.MINIO_SECRET_KEY }}" \
-            --values ./helm/opennotebook/values.yaml
-
-      - name: Verify Deployment Rollout
-        run: |
-          kubectl rollout status deployment/opennotebook-api --namespace opennotebook
-          kubectl rollout status deployment/opennotebook-worker --namespace opennotebook
-          kubectl rollout status deployment/opennotebook-frontend --namespace opennotebook
+          echo "=========================================="
+          echo "Cloud Run Deployment Succeeded"
+          echo "API URL:      ${{ steps.deploy-api.outputs.url }}"
+          echo "Frontend URL: ${{ steps.deploy-frontend.outputs.url }}"
+          echo "=========================================="

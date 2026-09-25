@@ -49,7 +49,7 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan", uselist=False, lazy="selectin"
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="noload"
+        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
     workspace_memberships: Mapped[list[WorkspaceMember]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
