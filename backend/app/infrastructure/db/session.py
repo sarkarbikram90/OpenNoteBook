@@ -9,6 +9,7 @@ Provides:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -16,21 +17,28 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from sqlalchemy.pool import NullPool
+
 from app.core.config import get_settings
 
 settings = get_settings()
 
 connect_args = {}
-if "pooler.supabase.com" in settings.database_url or "supabase" in settings.database_url:
+pool_kwargs: dict[str, Any] = {
+    "pool_pre_ping": True,
+    "pool_size": 10,
+    "max_overflow": 20,
+}
+
+if "pooler.supabase.com" in settings.database_url or "supabase" in settings.database_url or "6543" in settings.database_url:
     connect_args["statement_cache_size"] = 0
+    pool_kwargs = {"poolclass": NullPool}
 
 async_engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
     connect_args=connect_args,
+    **pool_kwargs,
 )
 
 AsyncSessionLocal = async_sessionmaker(

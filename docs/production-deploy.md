@@ -207,13 +207,13 @@ The pipeline runs on every push to `main` or manual trigger via `workflow_dispat
 
 ### 6.4 Supabase Database Connectivity on Cloud Run (IPv4 Pooler vs. Direct IPv6)
 - **Cause:** Supabase direct database hostnames (`db.<project_ref>.supabase.co:5432`) only publish IPv6 `AAAA` DNS records. Google Cloud Run serverless container egress defaults to IPv4-only, causing direct connections from Cloud Run to fail with `Network unreachable` or unhandled connection errors (`500 Internal Server Error`).
-- **Fix:** Connect via Supabase's **Session Pooler (Supavisor)** which provides public IPv4 routing:
+- **Fix:** Connect via Supabase's **Transaction Pooler (Supavisor)** on port 6543 which provides public IPv4 routing and serverless connection pooling:
   - **Host:** `aws-1-ap-southeast-1.pooler.supabase.com` (or your project's assigned AWS region pooler)
-  - **Port:** `5432` (Session mode for full prepared statement support) or `6543` (Transaction mode)
+  - **Port:** `6543` (Transaction pooler mode with `postgres.<project_ref>`)
   - **User:** `postgres.<project_ref>` (e.g. `postgres.ixjaquviwwtfrdenybxc`)
   - **Connection URI Format:**
-    `postgresql://postgres.<project_ref>:<password>@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres`
-  - *Note:* If your password contains `@` or special characters, URL-encode them (e.g., `getcracked@1990` becomes `getcracked%401990`). OpenNotebook automatically handles normalization, URL encoding, and translates direct Supabase hosts to IPv4 poolers.
+    `postgresql://postgres.<project_ref>:<password>@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres`
+  - *Note:* If your password contains `@` or special characters, URL-encode them (e.g., `getcracked@1990` becomes `getcracked%401990`). OpenNotebook automatically handles normalization, URL encoding, statement cache disablement, and maps direct Supabase hosts to IPv4 transaction poolers.
 
 ### 6.5 Default Demo Credentials & Account Creation
 - **Default Pre-seeded Demo Account:**
