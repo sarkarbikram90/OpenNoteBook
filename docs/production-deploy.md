@@ -204,3 +204,21 @@ The pipeline runs on every push to `main` or manual trigger via `workflow_dispat
 ### 6.3 `Key creation is not allowed on this service account (constraints/iam.disableServiceAccountKeyCreation)`
 - **Cause:** The GCP organization policy blocks creating and downloading exportable private JSON service account keys.
 - **Fix:** Use Workload Identity Federation (WIF) as documented in Section 4. WIF is completely keyless and satisfies this security constraint.
+
+### 6.4 Supabase Database Connectivity on Cloud Run (IPv4 Pooler vs. Direct IPv6)
+- **Cause:** Supabase direct database hostnames (`db.<project_ref>.supabase.co:5432`) only publish IPv6 `AAAA` DNS records. Google Cloud Run serverless container egress defaults to IPv4-only, causing direct connections from Cloud Run to fail with `Network unreachable` or unhandled connection errors (`500 Internal Server Error`).
+- **Fix:** Connect via Supabase's **Session Pooler (Supavisor)** which provides public IPv4 routing:
+  - **Host:** `aws-1-ap-southeast-1.pooler.supabase.com` (or your project's assigned AWS region pooler)
+  - **Port:** `5432` (Session mode for full prepared statement support) or `6543` (Transaction mode)
+  - **User:** `postgres.<project_ref>` (e.g. `postgres.ixjaquviwwtfrdenybxc`)
+  - **Connection URI Format:**
+    `postgresql://postgres.<project_ref>:<password>@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres`
+  - *Note:* If your password contains `@` or special characters, URL-encode them (e.g., `getcracked@1990` becomes `getcracked%401990`). OpenNotebook automatically handles normalization, URL encoding, and translates direct Supabase hosts to IPv4 poolers.
+
+### 6.5 Default Demo Credentials & Account Creation
+- **Default Pre-seeded Demo Account:**
+  - **Email:** `demo@example.com`
+  - **Password:** `password123`
+- **Account Registration:**
+  - Users can create new accounts directly via the frontend Sign Up tab (`/auth` -> Register).
+  - Passwords are securely hashed with bcrypt (cost factor 12) and JWT access/refresh tokens are returned immediately upon login or registration.

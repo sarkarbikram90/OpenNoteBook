@@ -47,6 +47,15 @@ class Settings(BaseSettings):
         elif val.startswith("postgresql://") and not val.startswith("postgresql+asyncpg://"):
             val = "postgresql+asyncpg://" + val[len("postgresql://"):]
 
+        # Supabase direct host (db.<project_ref>.supabase.co) only has IPv6 (AAAA) DNS records.
+        # Google Cloud Run outbound networking operates on IPv4 by default.
+        # Direct connections from Cloud Run to db.<ref>.supabase.co fail with network unreachable.
+        # Automatically map Supabase direct host to the active IPv4 pooler with project-scoped tenant user.
+        if "db.ixjaquviwwtfrdenybxc.supabase.co" in val:
+            val = val.replace("db.ixjaquviwwtfrdenybxc.supabase.co", "aws-1-ap-southeast-1.pooler.supabase.com")
+            if "://postgres:" in val:
+                val = val.replace("://postgres:", "://postgres.ixjaquviwwtfrdenybxc:")
+
         # Handle unescaped characters in password (e.g. '@' in password)
         if "://" in val and "@" in val:
             scheme, rest = val.split("://", 1)

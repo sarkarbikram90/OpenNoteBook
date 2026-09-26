@@ -149,7 +149,7 @@ jobs:
             LOG_LEVEL=INFO
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
             MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            DATABASE_URL=${{ secrets.DATABASE_URL || 'postgresql://postgres.ixjaquviwwtfrdenybxc:getcracked@1990@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres' }}
 
       - name: Deploy Frontend to Cloud Run
         id: deploy-frontend

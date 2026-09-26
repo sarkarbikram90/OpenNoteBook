@@ -20,12 +20,17 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+connect_args = {}
+if "pooler.supabase.com" in settings.database_url or "supabase" in settings.database_url:
+    connect_args["statement_cache_size"] = 0
+
 async_engine = create_async_engine(
     settings.database_url,
     echo=settings.debug,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    connect_args=connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(
