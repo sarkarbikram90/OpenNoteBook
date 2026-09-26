@@ -47,18 +47,7 @@ class Settings(BaseSettings):
         elif val.startswith("postgresql://") and not val.startswith("postgresql+asyncpg://"):
             val = "postgresql+asyncpg://" + val[len("postgresql://"):]
 
-        # Supabase direct host (db.<project_ref>.supabase.co) only has IPv6 (AAAA) DNS records.
-        # Google Cloud Run outbound networking operates on IPv4 by default.
-        # Direct connections from Cloud Run to db.<ref>.supabase.co fail with network unreachable.
-        # Automatically map Supabase direct host to the active IPv4 Transaction Pooler (port 6543)
-        # with project-scoped tenant user (postgres.<project_ref>).
-        if "db.ixjaquviwwtfrdenybxc.supabase.co" in val or "aws-1-ap-southeast-1.pooler.supabase.com" in val:
-            val = val.replace("db.ixjaquviwwtfrdenybxc.supabase.co", "aws-1-ap-southeast-1.pooler.supabase.com")
-            val = re.sub(r":5432\b", ":6543", val)
-            if "://postgres:" in val:
-                val = val.replace("://postgres:", "://postgres.ixjaquviwwtfrdenybxc:")
-
-        # Handle unescaped characters in password (e.g. '@' in password)
+        # Handle unescaped characters in password (e.g. '@' in password) first
         if "://" in val and "@" in val:
             scheme, rest = val.split("://", 1)
             userinfo, hostinfo = rest.rsplit("@", 1)
@@ -66,6 +55,20 @@ class Settings(BaseSettings):
                 user, password = userinfo.split(":", 1)
                 encoded_pwd = urllib.parse.quote(urllib.parse.unquote(password), safe="")
                 val = f"{scheme}://{user}:{encoded_pwd}@{hostinfo}"
+
+        # Supabase direct host (db.<project_ref>.supabase.co) only has IPv6 (AAAA) DNS records.
+        # Google Cloud Run outbound networking operates on IPv4 by default.
+        # The verified active IPv4 Transaction Pooler for project ixjaquviwwtfrdenybxc is:
+        # aws-1-ap-southeast-1.pooler.supabase.com:6543 with user postgres.ixjaquviwwtfrdenybxc
+        if "ixjaquviwwtfrdenybxc" in val:
+            scheme, rest = val.split("://", 1)
+            userinfo, _ = rest.split("@", 1)
+            if ":" in userinfo:
+                user, pwd = userinfo.split(":", 1)
+                if user == "postgres":
+                    user = "postgres.ixjaquviwwtfrdenybxc"
+                userinfo = f"{user}:{pwd}"
+            val = f"{scheme}://{userinfo}@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres"
 
         return val
 
