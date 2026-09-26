@@ -26,9 +26,32 @@ class StorageService:
     def __init__(self, provider: str | None = None, local_path: str | None = None) -> None:
         self.settings = get_settings()
         self.provider = (provider or self.settings.storage_provider).lower()
-        self.local_root = Path(local_path or self.settings.local_storage_path)
-        if self.provider == "local":
-            self.local_root.mkdir(parents=True, exist_ok=True)
+        self.local_root = self._resolve_local_root(local_path or self.settings.local_storage_path)
+
+    @staticmethod
+    def _resolve_local_root(path_str: str) -> Path:
+        """Return a writable local root, falling back to a temp dir if needed.
+
+        Serverless platforms (e.g. Cloud Run) run as a non-root user with a
+        read-only app dir; the configured path (often relative) may not be
+        writable. Falling back keeps local-storage mode functional.
+        """
+        import tempfile
+
+        primary = Path(path_str)
+        try:
+            primary.mkdir(parents=True, exist_ok=True)
+            probe = primary / ".write_test"
+            probe.write_bytes(b"")
+            probe.unlink()
+            return primary
+        except OSError as exc:
+            fallback = Path(tempfile.gettempdir()) / "opennotebook-lake"
+            fallback.mkdir(parents=True, exist_ok=True)
+            logger.warning(
+                "Local storage path %s is not writable (%s); using %s", primary, exc, fallback
+            )
+            return fallback
 
     @staticmethod
     def calculate_file_hash(data: bytes) -> str:
@@ -60,12 +83,14 @@ class StorageService:
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import upload_file, ensure_bucket
+
                 ensure_bucket()
                 return upload_file(data, clean_object_name, content_type=content_type)
             except Exception as exc:
                 logger.warning(
                     "MinIO upload failed (%s). Falling back to local lake storage: %s",
-                    exc, clean_object_name,
+                    exc,
+                    clean_object_name,
                 )
                 # Fallback to local
                 return self._upload_local(data, clean_object_name)
@@ -95,11 +120,13 @@ class StorageService:
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import download_file
+
                 return download_file(clean_object_name)
             except Exception as exc:
                 logger.warning(
                     "MinIO download failed (%s). Checking local lake storage: %s",
-                    exc, clean_object_name,
+                    exc,
+                    clean_object_name,
                 )
                 return self._download_local(clean_object_name)
 
@@ -116,10 +143,13 @@ class StorageService:
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import delete_file
+
                 delete_file(clean_object_name)
                 return
             except Exception as exc:
-                logger.warning("MinIO delete failed (%s). Trying local deletion: %s", exc, clean_object_name)
+                logger.warning(
+                    "MinIO delete failed (%s). Trying local deletion: %s", exc, clean_object_name
+                )
 
         self._delete_local(clean_object_name)
 
@@ -129,6 +159,7 @@ class StorageService:
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import get_minio_client
+
                 client = get_minio_client()
                 client.stat_object(self.settings.minio_bucket, clean_object_name)
                 return True

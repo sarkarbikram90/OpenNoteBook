@@ -43,9 +43,9 @@ class Settings(BaseSettings):
 
         val = v.strip()
         if val.startswith("postgres://"):
-            val = "postgresql+asyncpg://" + val[len("postgres://"):]
+            val = "postgresql+asyncpg://" + val[len("postgres://") :]
         elif val.startswith("postgresql://") and not val.startswith("postgresql+asyncpg://"):
-            val = "postgresql+asyncpg://" + val[len("postgresql://"):]
+            val = "postgresql+asyncpg://" + val[len("postgresql://") :]
 
         # Handle unescaped characters in password (e.g. '@' in password) first
         if "://" in val and "@" in val:
@@ -119,6 +119,7 @@ class Settings(BaseSettings):
 
     # ── Qdrant (Vector Store) ────────────────────
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
     qdrant_collection: str = "opennotebook_chunks"
 
     # ── Celery (Task Queue) ──────────────────────

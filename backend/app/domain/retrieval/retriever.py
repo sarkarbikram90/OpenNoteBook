@@ -45,6 +45,7 @@ def is_chunk_authorized(chunk: dict[str, Any], sec_ctx: UserSecurityContext | No
     # 1. Check Sensitivity Classification
     chunk_sens = chunk.get("sensitivity_level", "internal")
     from app.domain.governance.sensitivity import SensitivityLevel
+
     try:
         level = SensitivityLevel(chunk_sens.lower())
         if not level.is_accessible_by(sec_ctx.max_sensitivity):
@@ -237,9 +238,7 @@ def _dense_search(
     query_vector = query_vectors[0]
 
     # Build filter: notebook_id is mandatory, source_id is optional
-    must_conditions = [
-        FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))
-    ]
+    must_conditions = [FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))]
     search_filter = Filter(must=must_conditions)
 
     # Fetch slightly larger candidate set to allow for ACL security trimming
@@ -277,7 +276,17 @@ def _bm25_search(
     from app.domain.sources.bm25_index import _tokenise, load_bm25_index
     from app.infrastructure.qdrant.client import get_chunks_by_ids
 
-    bm25, chunk_ids = load_bm25_index(notebook_id)
+    try:
+        bm25, chunk_ids = load_bm25_index(notebook_id)
+    except Exception as exc:
+        # Redis unavailable (e.g. serverless without Redis) — degrade to vector-only.
+        logger.warning(
+            "BM25 index unavailable for notebook %s (%s); using vector-only retrieval",
+            notebook_id,
+            exc,
+        )
+        return []
+
     if bm25 is None or not chunk_ids:
         logger.debug("No BM25 index found for notebook %s", notebook_id)
         return []
@@ -286,11 +295,7 @@ def _bm25_search(
     scores = bm25.get_scores(tokenised_query)
 
     # Filter to positive scores and take top candidates
-    scored_pairs = [
-        (cid, score)
-        for cid, score in zip(chunk_ids, scores)
-        if score > 0
-    ]
+    scored_pairs = [(cid, score) for cid, score in zip(chunk_ids, scores) if score > 0]
     scored_pairs.sort(key=lambda pair: pair[1], reverse=True)
     candidate_limit = top_k * 2 if security_context else top_k
     scored_pairs = scored_pairs[:candidate_limit]
