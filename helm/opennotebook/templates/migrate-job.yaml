@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opennotebook-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: opennotebook-migrate
+  annotations:
+    # Run migrations before the app rolls out, on install and every upgrade.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: opennotebook-migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.global.registry }}/api:{{ .Values.global.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for the database, then applying migrations..."
+              for i in $(seq 1 30); do
+                if alembic upgrade head; then
+                  echo "Migrations applied successfully."; exit 0
+                fi
+                echo "Database not ready yet (attempt $i/30); retrying in 5s..."
+                sleep 5
+              done
+              echo "Migration failed after repeated attempts."; exit 1
+          envFrom:
+            - configMapRef:
+                name: opennotebook-config
+            - secretRef:
+                name: opennotebook-secrets
