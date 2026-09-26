@@ -9,6 +9,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { isAuthenticated } from '@/stores/auth';
 import { AppShell } from '@/components/ui/AppShell';
+import { ToastContainer } from '@/components/ui/Toast';
 import { LandingPage } from '@/pages/LandingPage';
 import { AuthPage } from '@/pages/AuthPage';
 import { SettingsPage } from '@/pages/SettingsPage';
@@ -56,50 +57,39 @@ export function App() {
 
   const currentPath = routeToPath(route);
 
-  // Unauthenticated routes
-  if (route.page === 'landing') {
-    return (
-      <LandingPage
-        onGetStarted={() => navigate('/auth')}
-      />
-    );
-  }
-
-  if (route.page === 'auth') {
-    return (
-      <AuthPage
-        onSuccess={() => navigate('/notebooks')}
-        onBack={() => navigate('/')}
-      />
-    );
-  }
-
-  // Require auth for everything else
-  if (!isAuthenticated()) {
-    return (
-      <AuthPage
-        onSuccess={() => navigate('/notebooks')}
-        onBack={() => navigate('/')}
-      />
-    );
-  }
-
-  // Authenticated routes
   return (
-    <AppShell onNavigate={navigate} currentPath={currentPath}>
-      {route.page === 'notebooks' && (
-        <NotebookDashboard
-          onSelectNotebook={(id) => navigate(`/notebooks/${id}`)}
+    <>
+      {route.page === 'landing' && (
+        <LandingPage onGetStarted={() => navigate('/auth')} />
+      )}
+
+      {(route.page === 'auth' || (!isAuthenticated() && route.page !== 'landing')) && (
+        <AuthPage
+          onSuccess={() => navigate('/notebooks')}
+          onBack={() => navigate('/')}
         />
       )}
-      {route.page === 'notebook' && (
-        <NotebookWorkspace
-          notebookId={route.id}
-          onBack={() => navigate('/notebooks')}
-        />
+
+      {isAuthenticated() && route.page !== 'landing' && route.page !== 'auth' && (
+        <AppShell onNavigate={navigate} currentPath={currentPath}>
+          {route.page === 'notebooks' && (
+            <NotebookDashboard
+              onSelectNotebook={(id) => navigate(`/notebooks/${id}`)}
+            />
+          )}
+          {route.page === 'notebook' && (
+            <NotebookWorkspace
+              notebookId={route.id}
+              onBack={() => navigate('/notebooks')}
+            />
+          )}
+          {route.page === 'settings' && <SettingsPage />}
+        </AppShell>
       )}
-      {route.page === 'settings' && <SettingsPage />}
-    </AppShell>
+
+      {/* Global Toast notifications */}
+      <ToastContainer />
+    </>
   );
 }
 

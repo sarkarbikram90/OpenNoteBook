@@ -58,8 +58,21 @@ html {
 }
 
 html.light {
-  background-color: var(--color-surface-50);
-  color: var(--color-surface-900);
+  background-color: #ffffff;
+  color: #0f172a;
+
+  /* Inverted surface palette for light mode */
+  --color-surface-50: #020617;
+  --color-surface-100: #0f172a;
+  --color-surface-200: #1e293b;
+  --color-surface-300: #334155;
+  --color-surface-400: #475569;
+  --color-surface-500: #64748b;
+  --color-surface-600: #94a3b8;
+  --color-surface-700: #e2e8f0;
+  --color-surface-800: #f1f5f9;
+  --color-surface-900: #f8fafc;
+  --color-surface-950: #ffffff;
 }
 
 body {

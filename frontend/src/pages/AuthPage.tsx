@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { clsx } from 'clsx';
-import { BookOpen, Loader2, ArrowLeft } from 'lucide-react';
+import { BookOpen, Loader2, ArrowLeft, X } from 'lucide-react';
 import { useLogin, useRegister } from '@/hooks/useAuth';
 
 interface AuthPageProps {
@@ -16,16 +16,34 @@ export function AuthPage({ onSuccess, onBack }: AuthPageProps) {
   const [tab, setTab] = useState<Tab>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const loginMutation = useLogin();
   const registerMutation = useRegister();
 
+  const handleTabChange = (newTab: Tab) => {
+    setTab(newTab);
+    setError(null);
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    if (tab === 'register' && password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
     const mutation = tab === 'login' ? loginMutation : registerMutation;
     mutation.mutate(
       { email, password },
-      { onSuccess },
+      {
+        onSuccess,
+        onError: (err) => {
+          setError(err.message || 'Authentication failed. Please check your credentials.');
+        },
+      },
     );
   };
 
@@ -59,7 +77,7 @@ export function AuthPage({ onSuccess, onBack }: AuthPageProps) {
           {(['login', 'register'] as const).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => handleTabChange(t)}
               className={clsx(
                 'flex-1 rounded-lg py-2 text-sm font-medium transition-all capitalize',
                 tab === t
@@ -72,6 +90,21 @@ export function AuthPage({ onSuccess, onBack }: AuthPageProps) {
           ))}
         </div>
 
+        {/* Error banner */}
+        {error && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400 mb-4 animate-fade-in flex items-start justify-between gap-2">
+            <span className="flex-1">{error}</span>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300 shrink-0 mt-0.5"
+              aria-label="Dismiss error"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -82,7 +115,10 @@ export function AuthPage({ onSuccess, onBack }: AuthPageProps) {
               id="auth-email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (error) setError(null);
+              }}
               required
               autoFocus
               placeholder="you@example.com"
@@ -98,12 +134,20 @@ export function AuthPage({ onSuccess, onBack }: AuthPageProps) {
               id="auth-password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (error) setError(null);
+              }}
               required
-              minLength={6}
+              minLength={8}
               placeholder="••••••••"
               className="w-full rounded-xl border border-surface-700/40 bg-surface-800/60 px-4 py-2.5 text-sm text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
             />
+            {tab === 'register' && (
+              <p className="mt-1.5 text-xs text-surface-500">
+                Password must be at least 8 characters long
+              </p>
+            )}
           </div>
 
           <button

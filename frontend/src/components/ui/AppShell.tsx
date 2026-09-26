@@ -4,7 +4,6 @@ import { useState, type ReactNode } from 'react';
 import { BookOpen, Settings, LogOut, Search, Command } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DarkModeToggle } from '@/components/ui/DarkModeToggle';
-import { ToastContainer } from '@/components/ui/Toast';
 import { CommandPalette } from '@/components/command/CommandPalette';
 import { useCurrentUser, useLogout } from '@/hooks/useAuth';
 import { useNotebooks } from '@/hooks/useNotebook';
@@ -140,9 +139,6 @@ export function AppShell({ children, onNavigate, currentPath }: AppShellProps) {
 
       {/* Command palette */}
       <CommandPalette onNavigate={onNavigate} />
-
-      {/* Toast notifications */}
-      <ToastContainer />
     </div>
   );
 }

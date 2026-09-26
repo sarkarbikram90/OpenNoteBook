@@ -29,7 +29,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     let detail = `HTTP ${response.status}`;
     try {
       const body = await response.json();
-      detail = body.detail ?? JSON.stringify(body);
+      if (Array.isArray(body.detail)) {
+        detail = body.detail.map((err: { msg?: string; loc?: string[] }) => err.msg || JSON.stringify(err)).join(', ');
+      } else if (typeof body.detail === 'string') {
+        detail = body.detail;
+      } else if (body.detail) {
+        detail = JSON.stringify(body.detail);
+      } else {
+        detail = JSON.stringify(body);
+      }
     } catch {
       /* response body not JSON */
     }

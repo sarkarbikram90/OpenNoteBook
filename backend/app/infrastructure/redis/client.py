@@ -48,14 +48,17 @@ def publish_status(source_id: str, status: str, detail: dict[str, Any] | None = 
         status: The new status (e.g. EXTRACTING, CHUNKING, EMBEDDING, READY, FAILED).
         detail: Optional extra detail dict (progress percentage, error message, etc.).
     """
-    client = get_sync_redis()
-    message = json.dumps({
-        "source_id": source_id,
-        "status": status,
-        **(detail or {}),
-    })
-    client.publish(_channel_name(source_id), message)
-    logger.debug("Published status %s for source %s", status, source_id)
+    try:
+        client = get_sync_redis()
+        message = json.dumps({
+            "source_id": source_id,
+            "status": status,
+            **(detail or {}),
+        })
+        client.publish(_channel_name(source_id), message)
+        logger.debug("Published status %s for source %s", status, source_id)
+    except Exception as exc:
+        logger.debug("Skipping Redis publish_status for source %s: %s", source_id, exc)
 
 
 async def subscribe_status(source_id: str) -> AsyncGenerator[dict[str, Any], None]:
@@ -70,30 +73,39 @@ async def subscribe_status(source_id: str) -> AsyncGenerator[dict[str, Any], Non
     Yields:
         Parsed status event dicts.
     """
-    client = get_async_redis()
-    pubsub = client.pubsub()
-    channel = _channel_name(source_id)
-
-    await pubsub.subscribe(channel)
-    logger.debug("SSE subscribed to channel: %s", channel)
-
+    client = None
     try:
-        while True:
-            message = await pubsub.get_message(
-                ignore_subscribe_messages=True,
-                timeout=1.0,
-            )
-            if message is not None and message["type"] == "message":
-                data = json.loads(message["data"])
-                yield data
+        client = get_async_redis()
+        pubsub = client.pubsub()
+        channel = _channel_name(source_id)
 
-                # Terminal statuses — close the stream
-                if data.get("status") in ("READY", "FAILED"):
-                    break
-            else:
-                # Yield control to the event loop while waiting
-                await asyncio.sleep(0.1)
+        await pubsub.subscribe(channel)
+        logger.debug("SSE subscribed to channel: %s", channel)
+
+        try:
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=1.0,
+                )
+                if message is not None and message["type"] == "message":
+                    data = json.loads(message["data"])
+                    yield data
+
+                    # Terminal statuses — close the stream
+                    if data.get("status") in ("READY", "FAILED"):
+                        break
+                else:
+                    # Yield control to the event loop while waiting
+                    await asyncio.sleep(0.1)
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+    except Exception as exc:
+        logger.debug("Redis subscribe failed or closed for source %s: %s", source_id, exc)
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
-        await client.aclose()
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:
+                pass

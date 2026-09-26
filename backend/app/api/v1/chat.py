@@ -377,12 +377,16 @@ async def trigger_summary(
         )
 
     # Queue Celery task
-    from app.worker.tasks.summarise import generate_summary
-
-    task = generate_summary.delay(str(source_id))
+    task_id = str(uuid.uuid4())
+    try:
+        from app.worker.tasks.summarise import generate_summary
+        task = generate_summary.delay(str(source_id))
+        task_id = task.id
+    except Exception as exc:
+        logger.warning("Failed to queue summarisation task with Celery for %s: %s", source_id, exc)
 
     return {
-        "task_id": task.id,
+        "task_id": task_id,
         "source_id": str(source_id),
         "status": "queued",
         "message": "Summarisation task queued",

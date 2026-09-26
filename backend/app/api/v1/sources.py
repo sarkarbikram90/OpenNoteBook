@@ -7,10 +7,11 @@ and real-time SSE status streaming.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 
@@ -27,7 +28,71 @@ from app.domain.sources.dedup import find_source_by_checksum
 from app.infrastructure.db.models import Notebook, Source
 from app.infrastructure.storage.paths import raw_key
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/notebooks/{notebook_id}/sources", tags=["sources"])
+
+
+def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
+    """Dispatch source processing to Celery if available, or fallback to in-process execution."""
+    dispatched = False
+    try:
+        from app.worker.tasks.process_source import process_source
+        process_source.delay(str(source_id))
+        dispatched = True
+        logger.info("Dispatched source %s to Celery queue", source_id)
+    except Exception as exc:
+        logger.warning(
+            "Celery task dispatch failed for source %s (%s). Falling back to in-process background execution.",
+            source_id,
+            exc,
+        )
+
+    if not dispatched and background_tasks is not None:
+        def _in_process_worker():
+            try:
+                from app.worker.tasks.process_source import process_source
+                if hasattr(process_source, "run"):
+                    process_source.run(str(source_id))
+                elif hasattr(process_source, "apply"):
+                    process_source.apply(args=[str(source_id)])
+                else:
+                    process_source(str(source_id))
+            except Exception as inner_exc:
+                logger.error("In-process source processing failed for %s: %s", source_id, inner_exc)
+
+        background_tasks.add_task(_in_process_worker)
+
+
+def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
+    """Dispatch reindex to Celery if available, or fallback to in-process execution."""
+    dispatched = False
+    try:
+        from app.worker.tasks.process_source import reindex_source
+        reindex_source.delay(str(source_id))
+        dispatched = True
+        logger.info("Dispatched reindex for source %s to Celery", source_id)
+    except Exception as exc:
+        logger.warning(
+            "Celery reindex dispatch failed for source %s (%s). Falling back to in-process execution.",
+            source_id,
+            exc,
+        )
+
+    if not dispatched and background_tasks is not None:
+        def _in_process_reindex():
+            try:
+                from app.worker.tasks.process_source import reindex_source
+                if hasattr(reindex_source, "run"):
+                    reindex_source.run(str(source_id))
+                elif hasattr(reindex_source, "apply"):
+                    reindex_source.apply(args=[str(source_id)])
+                else:
+                    reindex_source(str(source_id))
+            except Exception as inner_exc:
+                logger.error("In-process reindex failed for %s: %s", source_id, inner_exc)
+
+        background_tasks.add_task(_in_process_reindex)
 
 # Supported MIME types for file uploads
 _ALLOWED_MIME_TYPES = {
@@ -99,6 +164,7 @@ async def upload_file_source(
     notebook_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF, DOCX, TXT, or Markdown file"),
 ) -> SourceUploadResponse:
     """Upload a file source and queue it for async processing.
@@ -106,7 +172,7 @@ async def upload_file_source(
     1. Validates file type (MIME + extension) and size (≤50MB).
     2. Uploads to MinIO.
     3. Creates Source record with PENDING status.
-    4. Dispatches ``process_source`` Celery task.
+    4. Dispatches ``process_source`` Celery task (or fallback).
     5. Returns 202 Accepted with source_id.
     """
     settings = get_settings()
@@ -185,9 +251,8 @@ async def upload_file_source(
         details={"name": file.filename, "source_type": source_type, "notebook_id": str(notebook_id)},
     )
 
-    # Dispatch Celery task
-    from app.worker.tasks.process_source import process_source
-    process_source.delay(str(source_id))
+    # Dispatch Celery task with background task fallback
+    _dispatch_source_task(source_id, background_tasks)
 
     return SourceUploadResponse(source_id=source_id)
 
@@ -206,6 +271,7 @@ async def upload_url_source(
     body: SourceUploadURL,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> SourceUploadResponse:
     """Ingest a web page URL or YouTube video and queue for processing."""
     await _verify_notebook_ownership(notebook_id, user.id, db)
@@ -233,9 +299,8 @@ async def upload_url_source(
         details={"name": name, "url": str(body.url), "notebook_id": str(notebook_id)},
     )
 
-    # Dispatch Celery task
-    from app.worker.tasks.process_source import process_source
-    process_source.delay(str(source_id))
+    # Dispatch Celery task with background task fallback
+    _dispatch_source_task(source_id, background_tasks)
 
     return SourceUploadResponse(source_id=source_id)
 
@@ -378,6 +443,7 @@ async def reindex_source(
     source_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> SourceUploadResponse:
     """Re-process a source (e.g. after embedding model change).
 
@@ -399,8 +465,7 @@ async def reindex_source(
     source.error_message = None
     await db.flush()
 
-    from app.worker.tasks.process_source import process_source
-    process_source.delay(str(source_id))
+    _dispatch_source_task(source_id, background_tasks)
 
     return SourceUploadResponse(source_id=source_id)
 
@@ -470,13 +535,16 @@ async def stream_source_status(
         yield f"event: status\ndata: {data}\n\n"
 
         # Stream updates from Redis
-        async for event in subscribe_status(str(source_id)):
-            data = json.dumps(event)
-            yield f"event: status\ndata: {data}\n\n"
+        try:
+            async for event in subscribe_status(str(source_id)):
+                data = json.dumps(event)
+                yield f"event: status\ndata: {data}\n\n"
 
-            if event.get("status") in ("READY", "FAILED"):
-                yield f"event: done\ndata: {{}}\n\n"
-                break
+                if event.get("status") in ("READY", "FAILED"):
+                    yield f"event: done\ndata: {{}}\n\n"
+                    break
+        except Exception:
+            yield f"event: done\ndata: {{}}\n\n"
 
     return StreamingResponse(
         event_stream(),
@@ -502,6 +570,7 @@ async def reindex_source_endpoint(
     source_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> SourceUploadResponse:
     """Re-derive chunks and vector embeddings directly from the data lake."""
     result = await db.execute(
@@ -520,8 +589,7 @@ async def reindex_source_endpoint(
     source.error_message = None
     await db.flush()
 
-    from app.worker.tasks.process_source import reindex_source
-    reindex_source.delay(str(source_id))
+    _dispatch_reindex_task(source_id, background_tasks)
 
     return SourceUploadResponse(source_id=source_id)
 

@@ -25,6 +25,7 @@ interface ChatWorkspaceProps {
 
 export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string[]>([]);
   const [showSourceFilter, setShowSourceFilter] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -44,12 +45,12 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   const exportMutation = useExportSession();
   const feedbackMutation = useSubmitFeedback();
 
-  // Auto-select first session
+  // Auto-select first session only on initial load if not explicitly starting a new chat
   useEffect(() => {
-    if (!activeSessionId && sessions.length > 0) {
+    if (!activeSessionId && sessions.length > 0 && !isCreatingNew) {
       setActiveSessionId(sessions[0].id);
     }
-  }, [sessions, activeSessionId]);
+  }, [sessions, activeSessionId, isCreatingNew]);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -68,6 +69,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
 
   const handleSend = useCallback(
     (question: string) => {
+      setIsCreatingNew(false);
       stream.send(notebookId, question, {
         sessionId: activeSessionId ?? undefined,
         sourceFilter: sourceFilter.length > 0 ? sourceFilter : undefined,
@@ -85,6 +87,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   }, [messages, handleSend]);
 
   const handleNewSession = useCallback(() => {
+    setIsCreatingNew(true);
     setActiveSessionId(null);
     stream.reset();
   }, [stream]);
@@ -96,6 +99,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={(id) => {
+          setIsCreatingNew(false);
           setActiveSessionId(id);
           stream.reset();
         }}

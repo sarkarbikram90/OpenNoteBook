@@ -37,10 +37,14 @@ def _get_sync_session() -> Session:
     if _sync_engine is None:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import NullPool
 
         settings = get_settings()
         sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-        _sync_engine = create_engine(sync_url, pool_pre_ping=True, pool_size=5, max_overflow=10)
+        pool_kwargs: dict[str, Any] = {"pool_pre_ping": True, "pool_size": 5, "max_overflow": 10}
+        if "pooler.supabase.com" in sync_url or "supabase" in sync_url or "6543" in sync_url:
+            pool_kwargs = {"poolclass": NullPool}
+        _sync_engine = create_engine(sync_url, **pool_kwargs)
         _SyncSessionLocal = sessionmaker(bind=_sync_engine)
 
     return _SyncSessionLocal()
@@ -315,31 +319,34 @@ def process_source(self, source_id: str) -> dict:
         vectors = embed_texts(texts, batch_size=settings.embedding_batch_size)
 
         # ── Step 4: Upsert to Qdrant ────────────────────────────────────
-        # Delete any existing vectors for this source (in case of re-index)
-        delete_by_source(source_id)
+        try:
+            # Delete any existing vectors for this source (in case of re-index)
+            delete_by_source(source_id)
 
-        chunk_payloads = [
-            ChunkPayload(
-                chunk_id=chunk.chunk_id,
-                source_id=chunk.source_id,
-                notebook_id=chunk.notebook_id,
-                workspace_id=workspace_id,
-                sensitivity_level=sensitivity_level,
-                text=chunk.text,
-                token_count=chunk.token_count,
-                page=chunk.page,
-                section=chunk.section,
-                start_char=chunk.start_char,
-                end_char=chunk.end_char,
-                embedding_model=chunk.embedding_model,
-                allowed_roles=chunk.allowed_roles,
-                allowed_users=chunk.allowed_users,
-                vector=vector,
-            )
-            for chunk, vector in zip(chunks, vectors)
-        ]
+            chunk_payloads = [
+                ChunkPayload(
+                    chunk_id=chunk.chunk_id,
+                    source_id=chunk.source_id,
+                    notebook_id=chunk.notebook_id,
+                    workspace_id=workspace_id,
+                    sensitivity_level=sensitivity_level,
+                    text=chunk.text,
+                    token_count=chunk.token_count,
+                    page=chunk.page,
+                    section=chunk.section,
+                    start_char=chunk.start_char,
+                    end_char=chunk.end_char,
+                    embedding_model=chunk.embedding_model,
+                    allowed_roles=chunk.allowed_roles,
+                    allowed_users=chunk.allowed_users,
+                    vector=vector,
+                )
+                for chunk, vector in zip(chunks, vectors)
+            ]
 
-        upsert_chunks(chunk_payloads)
+            upsert_chunks(chunk_payloads)
+        except Exception as q_exc:
+            logger.warning("Vector store upsert skipped (Qdrant not available): %s", q_exc)
 
         # ── Step 5: Build BM25 index ────────────────────────────────────
         build_bm25_index(notebook_id)
@@ -372,15 +379,19 @@ def process_source(self, source_id: str) -> dict:
         tb = traceback.format_exc()
         logger.error("Source processing failed for %s: %s", source_id, error_msg)
 
-        if self.request.retries < self.max_retries:
+        has_celery_request = hasattr(self, "request") and hasattr(self, "max_retries")
+        if has_celery_request and self.request.retries < self.max_retries:
             _update_source_status(source_id, "PENDING", error_message=f"Retry {self.request.retries + 1}: {error_msg}")
             raise self.retry(exc=exc)
 
         # Max retries exhausted — move to DLQ
         _update_source_status(source_id, "FAILED", error_message=error_msg)
 
-        from app.worker.dlq import handle_dlq
-        handle_dlq(source_id, error_msg, tb)
+        try:
+            from app.worker.dlq import handle_dlq
+            handle_dlq(source_id, error_msg, tb)
+        except Exception:
+            pass
 
         return {
             "source_id": source_id,

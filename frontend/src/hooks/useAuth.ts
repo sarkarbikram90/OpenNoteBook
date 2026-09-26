@@ -65,20 +65,23 @@ export function useRegister() {
   });
 }
 
-/** Logout — clears tokens and query cache. */
+/** Logout — immediately clears credentials and state, revoking on server in background. */
 export function useLogout() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async () => {
-      try {
-        await logout();
-      } catch {
-        /* best-effort server-side revoke */
-      }
+  return {
+    mutate: (_?: unknown, options?: { onSuccess?: () => void }) => {
       clearTokens();
       setCurrentUser(null);
       queryClient.clear();
+      if (options?.onSuccess) {
+        options.onSuccess();
+      }
+      addToast('info', 'Signed out successfully');
+      logout().catch(() => {
+        /* best-effort server-side revoke */
+      });
     },
-  });
+    isPending: false,
+  };
 }
