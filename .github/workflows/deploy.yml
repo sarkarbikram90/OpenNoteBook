@@ -9,7 +9,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || secrets.GCP_PROJECT || secrets.PROJECT_ID || 'founders-club-507318' }}
   GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION || secrets.GAR_LOCATION || 'us-central1-docker.pkg.dev' }}
-  REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  REGION: ${{ secrets.GCP_REGION || 'asia-southeast1' }}
   REPOSITORY: opennotebook
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
   WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || 'opennotebook-deployer@founders-club-507318.iam.gserviceaccount.com' }}
