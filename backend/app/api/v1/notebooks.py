@@ -244,10 +244,11 @@ async def delete_notebook(
         pass
 
     try:
-        from app.infrastructure.redis.client import get_sync_redis
-        redis_client = get_sync_redis()
-        redis_client.delete(f"bm25:{notebook_id}")
-        redis_client.delete(f"bm25_docs:{notebook_id}")
+        from app.infrastructure.redis.client import is_redis_available, get_sync_redis
+        if is_redis_available():
+            redis_client = get_sync_redis()
+            redis_client.delete(f"bm25:{notebook_id}")
+            redis_client.delete(f"bm25_docs:{notebook_id}")
     except Exception:
         pass
 

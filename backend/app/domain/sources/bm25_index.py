@@ -48,15 +48,24 @@ def build_bm25_index(notebook_id: str) -> int:
     chunk_ids = [chunk.get("chunk_id", "") for chunk in chunks]
 
     # Serialise corpus and chunk_ids safely via JSON
-    redis_client = get_sync_redis()
-    redis_client.set(
-        f"{_BM25_KEY_PREFIX}{notebook_id}",
-        json.dumps(tokenised_corpus),
-    )
-    redis_client.set(
-        f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}",
-        json.dumps(chunk_ids),
-    )
+    try:
+        from app.infrastructure.redis.client import is_redis_available
+
+        if not is_redis_available():
+            logger.info("Redis not available; skipping BM25 cache for notebook %s", notebook_id)
+            return len(chunks)
+
+        redis_client = get_sync_redis()
+        redis_client.set(
+            f"{_BM25_KEY_PREFIX}{notebook_id}",
+            json.dumps(tokenised_corpus),
+        )
+        redis_client.set(
+            f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}",
+            json.dumps(chunk_ids),
+        )
+    except Exception as exc:
+        logger.warning("Failed to store BM25 index in Redis: %s", exc)
 
     logger.info(
         "Built BM25 index for notebook %s: %d chunks",
@@ -75,15 +84,20 @@ def load_bm25_index(notebook_id: str) -> tuple[BM25Okapi | None, list[str]]:
     Returns:
         Tuple of (BM25Okapi instance or None, list of chunk IDs).
     """
-    redis_client = get_sync_redis()
-
-    corpus_data = redis_client.get(f"{_BM25_KEY_PREFIX}{notebook_id}")
-    docs_data = redis_client.get(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
-
-    if corpus_data is None or docs_data is None:
-        return None, []
-
     try:
+        from app.infrastructure.redis.client import is_redis_available
+
+        if not is_redis_available():
+            return None, []
+
+        redis_client = get_sync_redis()
+
+        corpus_data = redis_client.get(f"{_BM25_KEY_PREFIX}{notebook_id}")
+        docs_data = redis_client.get(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
+
+        if corpus_data is None or docs_data is None:
+            return None, []
+
         tokenised_corpus = json.loads(corpus_data)
         chunk_ids = json.loads(docs_data)
         bm25 = BM25Okapi(tokenised_corpus)
@@ -95,9 +109,17 @@ def load_bm25_index(notebook_id: str) -> tuple[BM25Okapi | None, list[str]]:
 
 def _clear_index(notebook_id: str) -> None:
     """Remove the BM25 index for a notebook from Redis."""
-    redis_client = get_sync_redis()
-    redis_client.delete(f"{_BM25_KEY_PREFIX}{notebook_id}")
-    redis_client.delete(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
+    try:
+        from app.infrastructure.redis.client import is_redis_available
+
+        if not is_redis_available():
+            return
+
+        redis_client = get_sync_redis()
+        redis_client.delete(f"{_BM25_KEY_PREFIX}{notebook_id}")
+        redis_client.delete(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
+    except Exception:
+        pass
 
 
 def _tokenise(text: str) -> list[str]:
