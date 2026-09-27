@@ -91,6 +91,7 @@ export interface Citation {
   page: number | null;
   section: string | null;
   relevance_score: number;
+  snippet?: string;
 }
 
 /** SSE event types from backend chat endpoint */

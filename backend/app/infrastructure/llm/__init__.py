@@ -14,9 +14,20 @@ def get_llm_provider(provider: str | None = None) -> BaseLLMProvider:
 
     Args:
         provider: Override name (``ollama`` | ``openai`` | ``anthropic`` | ``gemini``).
-            Defaults to the ``llm_provider`` setting.
+            Defaults to the ``llm_provider`` setting with auto-detection for cloud API keys.
     """
-    name = (provider or get_settings().llm_provider or "ollama").lower()
+    settings = get_settings()
+    name = (provider or settings.llm_provider or "ollama").lower()
+
+    # Smart auto-detection: if default 'ollama' is specified but cloud API keys are present,
+    # auto-route to cloud provider (Gemini -> OpenAI -> Anthropic)
+    if name == "ollama":
+        if settings.gemini_api_key:
+            name = "gemini"
+        elif settings.openai_api_key:
+            name = "openai"
+        elif settings.anthropic_api_key:
+            name = "anthropic"
 
     if name == "ollama":
         return OllamaProvider()

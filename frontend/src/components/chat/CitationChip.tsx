@@ -53,6 +53,11 @@ export function CitationChip({ citation, index }: CitationChipProps) {
                   § {citation.section}
                 </p>
               )}
+              {citation.snippet && (
+                <p className="mt-2 text-xs italic text-surface-300 border-l-2 border-primary-500/50 pl-2 py-0.5 line-clamp-3 bg-surface-900/50 rounded-r">
+                  "{citation.snippet}"
+                </p>
+              )}
               {citation.relevance_score > 0 && (
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex-1 h-1.5 rounded-full bg-surface-700 overflow-hidden">

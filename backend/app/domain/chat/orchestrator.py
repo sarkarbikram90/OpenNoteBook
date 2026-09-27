@@ -38,6 +38,7 @@ class VerifiedCitation:
     chunk_id: str
     sensitivity_level: str
     relevance_score: float
+    snippet: str = ""
 
     def format_citation(self) -> str:
         """Format human-readable citation label."""
@@ -117,6 +118,7 @@ class GroundedPromptBuilder:
                 chunk_id=chunk.chunk_id,
                 sensitivity_level=chunk.sensitivity_level,
                 relevance_score=chunk.relevance_score,
+                snippet=(chunk.text.strip()[:240] + "...") if len(chunk.text.strip()) > 240 else chunk.text.strip(),
             )
             citations.append(citation)
 

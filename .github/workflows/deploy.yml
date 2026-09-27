@@ -153,6 +153,9 @@ jobs:
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
             MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
             DATABASE_URL=${{ secrets.DATABASE_URL || 'postgresql://postgres.ixjaquviwwtfrdenybxc:getcracked@1990@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres' }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            LLM_PROVIDER=${{ secrets.LLM_PROVIDER || (secrets.GEMINI_API_KEY && 'gemini') || 'ollama' }}
+            GEMINI_MODEL=${{ secrets.GEMINI_MODEL || 'gemini-1.5-flash' }}
 
       - name: Deploy Frontend to Cloud Run
         id: deploy-frontend

@@ -243,6 +243,7 @@ async def stream_answer(
                 "sensitivity_level": c.sensitivity_level,
                 "relevance_score": c.relevance_score,
                 "citation_label": c.format_citation(),
+                "snippet": getattr(c, "snippet", ""),
             }
             citations.append(cit_dict)
             yield _sse_event("citation", cit_dict)

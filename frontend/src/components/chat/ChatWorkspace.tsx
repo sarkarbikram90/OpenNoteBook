@@ -255,6 +255,16 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
           isStreaming={stream.isStreaming}
           disabled={false}
           textareaRef={chatInputRef}
+          quickPrompts={
+            readySources.length > 0 && messages.length === 0
+              ? [
+                  "Summarize key takeaways",
+                  "What are the main concepts?",
+                  "Generate a study guide & FAQ",
+                  "List actionable milestones",
+                ]
+              : []
+          }
           placeholder={
             readySources.length === 0
               ? 'Ask a question (add sources to ground answers with citations)...'
