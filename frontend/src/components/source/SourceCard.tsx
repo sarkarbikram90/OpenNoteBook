@@ -86,7 +86,8 @@ export function SourceCard({
             <div className="relative shrink-0">
               <button
                 onClick={() => setShowMenu(!showMenu)}
-                className="rounded-lg p-1 text-surface-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-surface-700/50 hover:text-surface-300"
+                aria-label="Source options"
+                className="rounded-lg p-1 text-surface-400 opacity-60 group-hover:opacity-100 transition-all hover:bg-surface-700/50 hover:text-surface-200"
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
@@ -140,11 +141,23 @@ export function SourceCard({
             </div>
           )}
 
-          {/* Error message */}
-          {source.status === 'FAILED' && source.error_message && (
-            <p className="mt-2 text-xs text-red-400 bg-red-500/5 rounded-lg px-2 py-1.5 border border-red-500/10">
-              {source.error_message}
-            </p>
+          {/* Error message with quick remove */}
+          {source.status === 'FAILED' && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300">
+              <span className="truncate">{source.error_message || 'Processing failed.'}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(source.id);
+                }}
+                className="shrink-0 flex items-center gap-1 rounded px-2 py-0.5 font-medium text-red-300 bg-red-500/20 hover:bg-red-500/30 transition-colors"
+                title="Delete this source"
+              >
+                <Trash2 className="h-3 w-3" />
+                Remove
+              </button>
+            </div>
           )}
         </div>
 
