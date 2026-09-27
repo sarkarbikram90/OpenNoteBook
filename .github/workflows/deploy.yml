@@ -141,8 +141,11 @@ jobs:
           flags: |
             --allow-unauthenticated
             --port=8080
-            --memory=1Gi
+            --memory=2Gi
+            --cpu=2
             --cpu-boost
+            --min-instances=1
+            --timeout=300
           env_vars: |
             APP_ENV=production
             LOG_FORMAT=json
@@ -161,6 +164,9 @@ jobs:
           flags: |
             --allow-unauthenticated
             --port=8080
+            --memory=512Mi
+            --cpu=1
+            --min-instances=1
           env_vars: |
             BACKEND_URL=${{ steps.deploy-api.outputs.url }}
 

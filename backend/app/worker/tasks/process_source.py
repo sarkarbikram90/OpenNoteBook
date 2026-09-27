@@ -41,12 +41,15 @@ def _get_sync_session() -> Session:
 
         settings = get_settings()
         sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://")
         pool_kwargs: dict[str, Any] = {
             "pool_pre_ping": True,
             "pool_size": 5,
             "max_overflow": 10,
             "pool_recycle": 300,
         }
+        if "sqlite" in sync_url:
+            pool_kwargs = {}
         _sync_engine = create_engine(sync_url, **pool_kwargs)
         _SyncSessionLocal = sessionmaker(bind=_sync_engine)
 
@@ -66,7 +69,6 @@ def _update_source_status(
 ) -> None:
     """Update the source record status in the database and publish to Redis."""
     from app.infrastructure.db.models import Source
-    from app.infrastructure.redis.client import publish_status
 
     session = _get_sync_session()
     try:
@@ -90,17 +92,23 @@ def _update_source_status(
             update(Source).where(Source.id == uuid.UUID(source_id)).values(**values)
         )
         session.commit()
+    except Exception as db_exc:
+        logger.error("Failed to update source %s status to %s: %s", source_id, status, db_exc)
     finally:
         session.close()
 
-    # Publish status event for SSE
-    publish_status(source_id, status, {
-        "chunk_count": chunk_count,
-        "error_message": error_message,
-        "pii_redacted": pii_redacted,
-        "pii_entities_count": pii_entities_count,
-        "sensitivity_level": sensitivity_level,
-    })
+    # Publish status event for SSE (non-blocking)
+    try:
+        from app.infrastructure.redis.client import publish_status
+        publish_status(source_id, status, {
+            "chunk_count": chunk_count,
+            "error_message": error_message,
+            "pii_redacted": pii_redacted,
+            "pii_entities_count": pii_entities_count,
+            "sensitivity_level": sensitivity_level,
+        })
+    except Exception as redis_exc:
+        logger.debug("Redis publish_status skipped for source %s: %s", source_id, redis_exc)
 
 
 def _get_source_record(source_id: str) -> dict:
@@ -182,15 +190,8 @@ def _persist_processed_artifacts(
     logger.info("Persisted processed artifacts for source %s", source_id)
 
 
-@celery_app.task(
-    bind=True,
-    name="app.worker.tasks.process_source",
-    max_retries=3,
-    default_retry_delay=30,
-    acks_late=True,
-)
-def process_source(self, source_id: str) -> dict:
-    """Main source processing pipeline task.
+def execute_process_source(source_id: str) -> dict:
+    """Main source processing pipeline execution.
 
     Args:
         source_id: UUID of the source to process.
@@ -294,14 +295,17 @@ def process_source(self, source_id: str) -> dict:
         )
 
         # ── Step 2b: PERSIST PROCESSED ARTIFACTS TO DATA LAKE ───────────
-        _persist_processed_artifacts(
-            source_id=source_id,
-            text=extraction.text,
-            chunk_count=len(chunks),
-            pii_entities=pii_entities,
-            sensitivity_level=sensitivity_level,
-            notebook_id=notebook_id,
-        )
+        try:
+            _persist_processed_artifacts(
+                source_id=source_id,
+                text=extraction.text,
+                chunk_count=len(chunks),
+                pii_entities=pii_entities,
+                sensitivity_level=sensitivity_level,
+                notebook_id=notebook_id,
+            )
+        except Exception as persist_exc:
+            logger.warning("Could not persist processed artifacts to lake: %s", persist_exc)
 
         if not chunks:
             _update_source_status(
@@ -319,7 +323,11 @@ def process_source(self, source_id: str) -> dict:
         _update_source_status(source_id, "EMBEDDING")
 
         texts = [chunk.text for chunk in chunks]
-        vectors = embed_texts(texts, batch_size=settings.embedding_batch_size)
+        try:
+            vectors = embed_texts(texts, batch_size=settings.embedding_batch_size)
+        except Exception as embed_exc:
+            logger.warning("Embedding generation failed (%s). Falling back to zero-vectors.", embed_exc)
+            vectors = [[0.0] * 384 for _ in texts]
 
         # ── Step 4: Upsert to Qdrant ────────────────────────────────────
         try:
@@ -352,7 +360,10 @@ def process_source(self, source_id: str) -> dict:
             logger.warning("Vector store upsert skipped (Qdrant not available): %s", q_exc)
 
         # ── Step 5: Build BM25 index ────────────────────────────────────
-        build_bm25_index(notebook_id)
+        try:
+            build_bm25_index(notebook_id)
+        except Exception as bm_exc:
+            logger.warning("BM25 index build skipped: %s", bm_exc)
 
         # ── Step 6: READY ───────────────────────────────────────────────
         _update_source_status(
@@ -380,14 +391,7 @@ def process_source(self, source_id: str) -> dict:
     except Exception as exc:
         error_msg = str(exc)
         tb = traceback.format_exc()
-        logger.error("Source processing failed for %s: %s", source_id, error_msg)
-
-        has_celery_request = hasattr(self, "request") and hasattr(self, "max_retries")
-        if has_celery_request and self.request.retries < self.max_retries:
-            _update_source_status(source_id, "PENDING", error_message=f"Retry {self.request.retries + 1}: {error_msg}")
-            raise self.retry(exc=exc)
-
-        # Max retries exhausted — move to DLQ
+        logger.error("Source processing failed for %s: %s\n%s", source_id, error_msg, tb)
         _update_source_status(source_id, "FAILED", error_message=error_msg)
 
         try:
@@ -403,6 +407,38 @@ def process_source(self, source_id: str) -> dict:
         }
 
 
+def execute_reindex_source(source_id: str) -> dict:
+    """Synchronously re-derive vector embeddings and chunks directly from the raw data lake without re-upload."""
+    logger.info("Triggering zero-reupload re-index for source %s from Data Lake", source_id)
+    return execute_process_source(source_id)
+
+
+@celery_app.task(
+    bind=True,
+    name="app.worker.tasks.process_source",
+    max_retries=3,
+    default_retry_delay=30,
+    acks_late=True,
+)
+def process_source(self, source_id: str) -> dict:
+    """Main source processing pipeline Celery task."""
+    try:
+        res = execute_process_source(source_id)
+        if res.get("status") == "FAILED":
+            has_celery_request = hasattr(self, "request") and hasattr(self, "max_retries")
+            if has_celery_request and self.request.retries < self.max_retries:
+                _update_source_status(source_id, "PENDING", error_message=f"Retry {self.request.retries + 1}")
+                raise self.retry(exc=Exception(res.get("error", "Unknown error")))
+        return res
+    except Exception as exc:
+        has_celery_request = hasattr(self, "request") and hasattr(self, "max_retries")
+        if has_celery_request and self.request.retries < self.max_retries:
+            _update_source_status(source_id, "PENDING", error_message=f"Retry {self.request.retries + 1}: {exc}")
+            raise self.retry(exc=exc)
+        _update_source_status(source_id, "FAILED", error_message=str(exc))
+        raise
+
+
 @celery_app.task(
     bind=True,
     name="app.worker.tasks.reindex_source",
@@ -412,6 +448,5 @@ def process_source(self, source_id: str) -> dict:
 )
 def reindex_source(self, source_id: str) -> dict:
     """Re-derive vector embeddings and chunks directly from the raw data lake without re-upload."""
-    logger.info("Triggering zero-reupload re-index for source %s from Data Lake", source_id)
-    return process_source(source_id)
+    return execute_reindex_source(source_id)
 

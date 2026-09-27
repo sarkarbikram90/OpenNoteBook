@@ -30,10 +30,11 @@ export function SessionSidebar({
         <h3 className="text-sm font-semibold text-surface-200">Chats</h3>
         <button
           onClick={onNewSession}
-          className="rounded-lg p-1.5 text-surface-400 transition-colors hover:bg-surface-800 hover:text-primary-400"
-          title="New chat"
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-surface-200 bg-surface-800/80 hover:bg-primary-600 hover:text-white transition-colors border border-surface-700/50 shadow-sm"
+          title="Start a new chat"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" />
+          <span>New</span>
         </button>
       </div>
 
@@ -46,10 +47,19 @@ export function SessionSidebar({
             ))}
           </div>
         ) : sessions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <MessageSquare className="h-10 w-10 text-surface-600 mb-3" />
-            <p className="text-sm text-surface-500">No chats yet</p>
-            <p className="text-xs text-surface-600 mt-1">Start a conversation!</p>
+          <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-800/80 text-surface-400 mb-3 border border-surface-700/40">
+              <MessageSquare className="h-5 w-5 text-primary-400" />
+            </div>
+            <p className="text-sm font-medium text-surface-300">No chats yet</p>
+            <p className="text-xs text-surface-500 mt-1 mb-4">Start a new conversation</p>
+            <button
+              onClick={onNewSession}
+              className="flex items-center gap-1.5 rounded-lg bg-primary-600/20 hover:bg-primary-600/30 text-primary-300 border border-primary-500/30 px-3 py-1.5 text-xs font-medium transition-all"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>New Chat</span>
+            </button>
           </div>
         ) : (
           <div className="space-y-1">

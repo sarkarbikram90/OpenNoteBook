@@ -10,6 +10,7 @@ interface ChatInputProps {
   disabled?: boolean;
   quickPrompts?: string[];
   placeholder?: string;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export function ChatInput({
@@ -18,9 +19,11 @@ export function ChatInput({
   disabled = false,
   quickPrompts = [],
   placeholder = 'Ask a question about your sources...',
+  textareaRef: externalRef,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeRef = externalRef || fallbackRef;
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -29,10 +32,10 @@ export function ChatInput({
     setValue('');
 
     // Reset textarea height
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+    if (activeRef.current) {
+      activeRef.current.style.height = 'auto';
     }
-  }, [value, isStreaming, disabled, onSend]);
+  }, [value, isStreaming, disabled, onSend, activeRef]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -45,11 +48,11 @@ export function ChatInput({
   );
 
   const handleInput = useCallback(() => {
-    const el = textareaRef.current;
+    const el = activeRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, []);
+  }, [activeRef]);
 
   return (
     <div className="border-t border-surface-700/40 bg-surface-900/80 backdrop-blur-sm p-4">
@@ -61,7 +64,7 @@ export function ChatInput({
               key={i}
               onClick={() => {
                 setValue(prompt);
-                textareaRef.current?.focus();
+                activeRef.current?.focus();
               }}
               className="rounded-xl border border-surface-700/40 bg-surface-800/60 px-3 py-1.5 text-xs text-surface-300 transition-all hover:border-primary-500/30 hover:bg-surface-800 hover:text-surface-100"
             >
@@ -75,7 +78,7 @@ export function ChatInput({
       <div className="flex items-end gap-3">
         <div className="flex-1 relative">
           <textarea
-            ref={textareaRef}
+            ref={activeRef as any}
             value={value}
             onChange={(e) => {
               setValue(e.target.value);

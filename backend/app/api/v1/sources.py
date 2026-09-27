@@ -51,20 +51,24 @@ def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTask
                 exc,
             )
 
-    if not dispatched and background_tasks is not None:
+    if not dispatched:
         def _in_process_worker():
             try:
-                from app.worker.tasks.process_source import process_source
-                if hasattr(process_source, "run"):
-                    process_source.run(str(source_id))
-                elif hasattr(process_source, "apply"):
-                    process_source.apply(args=[str(source_id)])
-                else:
-                    process_source(str(source_id))
+                from app.worker.tasks.process_source import execute_process_source
+                execute_process_source(str(source_id))
             except Exception as inner_exc:
                 logger.error("In-process source processing failed for %s: %s", source_id, inner_exc)
+                try:
+                    from app.worker.tasks.process_source import _update_source_status
+                    _update_source_status(str(source_id), "FAILED", error_message=str(inner_exc))
+                except Exception:
+                    pass
 
-        background_tasks.add_task(_in_process_worker)
+        if background_tasks is not None:
+            background_tasks.add_task(_in_process_worker)
+        else:
+            import threading
+            threading.Thread(target=_in_process_worker, daemon=True).start()
 
 
 def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
@@ -85,20 +89,24 @@ def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTas
                 exc,
             )
 
-    if not dispatched and background_tasks is not None:
+    if not dispatched:
         def _in_process_reindex():
             try:
-                from app.worker.tasks.process_source import reindex_source
-                if hasattr(reindex_source, "run"):
-                    reindex_source.run(str(source_id))
-                elif hasattr(reindex_source, "apply"):
-                    reindex_source.apply(args=[str(source_id)])
-                else:
-                    reindex_source(str(source_id))
+                from app.worker.tasks.process_source import execute_reindex_source
+                execute_reindex_source(str(source_id))
             except Exception as inner_exc:
                 logger.error("In-process reindex failed for %s: %s", source_id, inner_exc)
+                try:
+                    from app.worker.tasks.process_source import _update_source_status
+                    _update_source_status(str(source_id), "FAILED", error_message=str(inner_exc))
+                except Exception:
+                    pass
 
-        background_tasks.add_task(_in_process_reindex)
+        if background_tasks is not None:
+            background_tasks.add_task(_in_process_reindex)
+        else:
+            import threading
+            threading.Thread(target=_in_process_reindex, daemon=True).start()
 
 # Supported MIME types for file uploads
 _ALLOWED_MIME_TYPES = {
@@ -323,6 +331,7 @@ async def list_sources(
     notebook_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> SourceListResponse:
     """List all sources in a notebook."""
     await _verify_notebook_ownership(notebook_id, user.id, db)
@@ -333,6 +342,19 @@ async def list_sources(
         .order_by(Source.created_at.desc())
     )
     sources = list(result.scalars().all())
+
+    # Auto-heal: Check if any sources are stuck in PENDING or EXTRACTING for > 30 seconds
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    for s in sources:
+        if s.status in ("PENDING", "EXTRACTING", "CHUNKING", "EMBEDDING"):
+            created = getattr(s, "created_at", None)
+            if created:
+                created_dt = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
+                if (now - created_dt).total_seconds() > 30:
+                    logger.info("Found stuck source %s in status %s; triggering auto-heal reprocess", s.id, s.status)
+                    _dispatch_source_task(s.id, background_tasks)
+
     responses = [SourceResponse.model_validate(s) for s in sources]
     return SourceListResponse(sources=responses, total=len(responses))
 

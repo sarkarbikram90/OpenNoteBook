@@ -29,6 +29,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   const [sourceFilter, setSourceFilter] = useState<string[]>([]);
   const [showSourceFilter, setShowSourceFilter] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const queryClient = useQueryClient();
 
   // Queries
@@ -90,6 +91,9 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
     setIsCreatingNew(true);
     setActiveSessionId(null);
     stream.reset();
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 50);
   }, [stream]);
 
   return (
@@ -249,10 +253,11 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
         <ChatInput
           onSend={handleSend}
           isStreaming={stream.isStreaming}
-          disabled={readySources.length === 0}
+          disabled={false}
+          textareaRef={chatInputRef}
           placeholder={
             readySources.length === 0
-              ? 'Upload sources first to start chatting...'
+              ? 'Ask a question (add sources to ground answers with citations)...'
               : 'Ask a question about your sources...'
           }
         />
