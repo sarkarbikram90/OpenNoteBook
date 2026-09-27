@@ -20,13 +20,74 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+_minio_checked_at: float = 0.0
+_minio_reachable: bool | None = None
+
+
+def _probe_tcp_endpoint(endpoint: str, timeout: float = 0.3) -> bool:
+    """Fast socket probe to check if a TCP service endpoint is open."""
+    import socket
+
+    try:
+        clean = (
+            endpoint.replace("http://", "")
+            .replace("https://", "")
+            .replace("redis://", "")
+            .replace("rediss://", "")
+            .split("/")[0]
+        )
+        if "@" in clean:
+            clean = clean.split("@", 1)[1]
+        if ":" in clean:
+            host, port_str = clean.split(":", 1)
+            port = int(port_str)
+        else:
+            host = clean
+            port = 443 if "https://" in endpoint else 80
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 class StorageService:
     """Unified Data Lake Object Storage service."""
 
     def __init__(self, provider: str | None = None, local_path: str | None = None) -> None:
         self.settings = get_settings()
-        self.provider = (provider or self.settings.storage_provider).lower()
+        self._provider = (provider or self.settings.storage_provider).lower()
         self.local_root = self._resolve_local_root(local_path or self.settings.local_storage_path)
+
+    @property
+    def provider(self) -> str:
+        """Return the effective storage provider, auto-routing to local if MinIO/S3 is unreachable."""
+        if self._provider in ("minio", "s3"):
+            if not self._is_minio_available():
+                return "local"
+        return self._provider
+
+    @provider.setter
+    def provider(self, val: str) -> None:
+        self._provider = val.lower()
+
+    def _is_minio_available(self) -> bool:
+        """Check if MinIO/S3 endpoint is alive, caching for 60 seconds."""
+        global _minio_checked_at, _minio_reachable
+        import time
+
+        now = time.monotonic()
+        if _minio_reachable is not None and (now - _minio_checked_at < 60.0):
+            return _minio_reachable
+
+        _minio_reachable = _probe_tcp_endpoint(self.settings.minio_endpoint, timeout=0.3)
+        _minio_checked_at = now
+        if not _minio_reachable:
+            logger.info(
+                "MinIO endpoint %s is unreachable; auto-routing storage to local filesystem: %s",
+                self.settings.minio_endpoint,
+                self.local_root,
+            )
+        return _minio_reachable
 
     @staticmethod
     def _resolve_local_root(path_str: str) -> Path:
@@ -87,6 +148,8 @@ class StorageService:
                 ensure_bucket()
                 return upload_file(data, clean_object_name, content_type=content_type)
             except Exception as exc:
+                global _minio_reachable
+                _minio_reachable = False
                 logger.warning(
                     "MinIO upload failed (%s). Falling back to local lake storage: %s",
                     exc,
@@ -123,6 +186,8 @@ class StorageService:
 
                 return download_file(clean_object_name)
             except Exception as exc:
+                global _minio_reachable
+                _minio_reachable = False
                 logger.warning(
                     "MinIO download failed (%s). Checking local lake storage: %s",
                     exc,
@@ -147,6 +212,8 @@ class StorageService:
                 delete_file(clean_object_name)
                 return
             except Exception as exc:
+                global _minio_reachable
+                _minio_reachable = False
                 logger.warning(
                     "MinIO delete failed (%s). Trying local deletion: %s", exc, clean_object_name
                 )

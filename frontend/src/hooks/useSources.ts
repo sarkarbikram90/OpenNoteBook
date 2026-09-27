@@ -29,7 +29,14 @@ export function useSources(notebookId: string) {
     queryFn: () => getSources(notebookId),
     select: (data) => data.sources,
     enabled: !!notebookId,
-    refetchInterval: 5000, // Poll for status updates
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data?.sources || data.sources.length === 0) return false;
+      const hasActive = data.sources.some((s) =>
+        ['PENDING', 'EXTRACTING', 'CHUNKING', 'EMBEDDING'].includes(s.status)
+      );
+      return hasActive ? 3000 : false;
+    },
   });
 }
 

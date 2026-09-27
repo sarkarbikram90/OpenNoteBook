@@ -35,18 +35,21 @@ router = APIRouter(prefix="/notebooks/{notebook_id}/sources", tags=["sources"])
 
 def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
     """Dispatch source processing to Celery if available, or fallback to in-process execution."""
+    from app.infrastructure.redis.client import is_redis_available
+
     dispatched = False
-    try:
-        from app.worker.tasks.process_source import process_source
-        process_source.delay(str(source_id))
-        dispatched = True
-        logger.info("Dispatched source %s to Celery queue", source_id)
-    except Exception as exc:
-        logger.warning(
-            "Celery task dispatch failed for source %s (%s). Falling back to in-process background execution.",
-            source_id,
-            exc,
-        )
+    if is_redis_available():
+        try:
+            from app.worker.tasks.process_source import process_source
+            process_source.delay(str(source_id))
+            dispatched = True
+            logger.info("Dispatched source %s to Celery queue", source_id)
+        except Exception as exc:
+            logger.warning(
+                "Celery task dispatch failed for source %s (%s). Falling back to in-process background execution.",
+                source_id,
+                exc,
+            )
 
     if not dispatched and background_tasks is not None:
         def _in_process_worker():
@@ -66,18 +69,21 @@ def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTask
 
 def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
     """Dispatch reindex to Celery if available, or fallback to in-process execution."""
+    from app.infrastructure.redis.client import is_redis_available
+
     dispatched = False
-    try:
-        from app.worker.tasks.process_source import reindex_source
-        reindex_source.delay(str(source_id))
-        dispatched = True
-        logger.info("Dispatched reindex for source %s to Celery", source_id)
-    except Exception as exc:
-        logger.warning(
-            "Celery reindex dispatch failed for source %s (%s). Falling back to in-process execution.",
-            source_id,
-            exc,
-        )
+    if is_redis_available():
+        try:
+            from app.worker.tasks.process_source import reindex_source
+            reindex_source.delay(str(source_id))
+            dispatched = True
+            logger.info("Dispatched reindex for source %s to Celery", source_id)
+        except Exception as exc:
+            logger.warning(
+                "Celery reindex dispatch failed for source %s (%s). Falling back to in-process execution.",
+                source_id,
+                exc,
+            )
 
     if not dispatched and background_tasks is not None:
         def _in_process_reindex():

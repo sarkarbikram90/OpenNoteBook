@@ -93,7 +93,14 @@ async def create_notebook(
         details={"name": notebook.name},
     )
 
-    return await _notebook_to_response(notebook, db)
+    return NotebookResponse(
+        id=notebook.id,
+        name=notebook.name,
+        description=notebook.description,
+        source_count=0,
+        created_at=notebook.created_at,
+        updated_at=notebook.updated_at,
+    )
 
 
 @router.get(
@@ -106,14 +113,30 @@ async def list_notebooks(
     db: DbSession,
 ) -> NotebookListResponse:
     """List all notebooks belonging to the authenticated user."""
-    result = await db.execute(
-        select(Notebook)
+    query = (
+        select(
+            Notebook,
+            func.count(Source.id).label("source_count"),
+        )
+        .outerjoin(Source, Source.notebook_id == Notebook.id)
         .where(Notebook.user_id == user.id)
+        .group_by(Notebook.id)
         .order_by(Notebook.updated_at.desc())
     )
-    notebooks = list(result.scalars().all())
+    result = await db.execute(query)
+    rows = result.all()
 
-    responses = [await _notebook_to_response(nb, db) for nb in notebooks]
+    responses = [
+        NotebookResponse(
+            id=nb.id,
+            name=nb.name,
+            description=nb.description,
+            source_count=count,
+            created_at=nb.created_at,
+            updated_at=nb.updated_at,
+        )
+        for nb, count in rows
+    ]
     return NotebookListResponse(notebooks=responses, total=len(responses))
 
 
@@ -128,8 +151,34 @@ async def get_notebook(
     db: DbSession,
 ) -> NotebookResponse:
     """Retrieve a specific notebook by ID."""
-    notebook = await _get_user_notebook(notebook_id, user.id, db)
-    return await _notebook_to_response(notebook, db)
+    query = (
+        select(
+            Notebook,
+            func.count(Source.id).label("source_count"),
+        )
+        .outerjoin(Source, Source.notebook_id == Notebook.id)
+        .where(
+            Notebook.id == notebook_id,
+            Notebook.user_id == user.id,
+        )
+        .group_by(Notebook.id)
+    )
+    result = await db.execute(query)
+    row = result.first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notebook not found",
+        )
+    nb, count = row
+    return NotebookResponse(
+        id=nb.id,
+        name=nb.name,
+        description=nb.description,
+        source_count=count,
+        created_at=nb.created_at,
+        updated_at=nb.updated_at,
+    )
 
 
 @router.patch(

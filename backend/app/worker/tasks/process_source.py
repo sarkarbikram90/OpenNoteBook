@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+from typing import Any
 import uuid
 
 from sqlalchemy import update
@@ -37,13 +38,15 @@ def _get_sync_session() -> Session:
     if _sync_engine is None:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
-        from sqlalchemy.pool import NullPool
 
         settings = get_settings()
         sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-        pool_kwargs: dict[str, Any] = {"pool_pre_ping": True, "pool_size": 5, "max_overflow": 10}
-        if "pooler.supabase.com" in sync_url or "supabase" in sync_url or "6543" in sync_url:
-            pool_kwargs = {"poolclass": NullPool}
+        pool_kwargs: dict[str, Any] = {
+            "pool_pre_ping": True,
+            "pool_size": 5,
+            "max_overflow": 10,
+            "pool_recycle": 300,
+        }
         _sync_engine = create_engine(sync_url, **pool_kwargs)
         _SyncSessionLocal = sessionmaker(bind=_sync_engine)
 
