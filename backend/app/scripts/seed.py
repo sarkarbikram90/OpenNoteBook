@@ -107,8 +107,10 @@ def generate_pdf(filename: str, title: str, content: str) -> str:
 
 def get_db_session():
     settings = get_settings()
-    # Convert asyncpg driver to standard sync pg driver
-    sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    # Convert asyncpg driver to standard sync pg driver (psycopg2)
+    sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+    if sync_url.startswith("postgresql://"):
+        sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://", 1)
     engine = create_engine(sync_url, pool_pre_ping=True)
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine)

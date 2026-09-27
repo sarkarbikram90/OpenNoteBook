@@ -40,7 +40,9 @@ def _get_sync_session() -> Session:
         from sqlalchemy.orm import sessionmaker
 
         settings = get_settings()
-        sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        if sync_url.startswith("postgresql://"):
+            sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://")
         pool_kwargs: dict[str, Any] = {
             "pool_pre_ping": True,
@@ -199,17 +201,17 @@ def execute_process_source(source_id: str) -> dict:
     Returns:
         Dict with processing result summary.
     """
-    from app.domain.sources.extractor import extract
-    from app.domain.sources.chunker import chunk_document
-    from app.domain.sources.embedder import embed_texts
-    from app.domain.sources.bm25_index import build_bm25_index
-    from app.infrastructure.storage.service import get_storage_service
-    from app.domain.governance.pii_engine import get_pii_scrubber
-    from app.infrastructure.qdrant.client import upsert_chunks, ChunkPayload, delete_by_source
-
     settings = get_settings()
 
     try:
+        from app.domain.sources.extractor import extract
+        from app.domain.sources.chunker import chunk_document
+        from app.domain.sources.embedder import embed_texts
+        from app.domain.sources.bm25_index import build_bm25_index
+        from app.infrastructure.storage.service import get_storage_service
+        from app.domain.governance.pii_engine import get_pii_scrubber
+        from app.infrastructure.qdrant.client import upsert_chunks, ChunkPayload, delete_by_source
+
         # Load source record
         source = _get_source_record(source_id)
         notebook_id = source["notebook_id"]
