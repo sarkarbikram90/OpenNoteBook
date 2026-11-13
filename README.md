@@ -98,7 +98,8 @@ For details, see:
 ### Phase 1 — MVP (Completed)
 
 - [x] Notebook CRUD
-- [x] Source upload (PDF, DOCX, TXT, Markdown, URL, YouTube transcripts)
+- [x] Source upload (PDF, DOCX, TXT, Markdown, OCR-ready raster images, URL, YouTube transcripts)
+- [x] Pluggable object storage (local, MinIO/S3, Google Cloud Storage)
 - [x] Semantic chunking + local BGE embeddings
 - [x] Hybrid retrieval (vector + BM25 + cross-encoder reranking)
 - [x] Real-time streaming RAG answers with inline citations
@@ -126,7 +127,7 @@ For details, see:
 | Frontend | React 19, TypeScript, Vite, TanStack Query, Tailwind CSS v4 |
 | Backend | FastAPI, Python 3.12, SQLAlchemy 2 (async), Celery, Redis |
 | AI / ML | Ollama, BGE-small-en-v1.5, BGE-reranker-base |
-| Databases & Storage | PostgreSQL 16, Qdrant (Vector DB), MinIO / S3 |
+| Databases & Storage | PostgreSQL 16, Qdrant (Vector DB), GCS / MinIO / S3 |
 | Observability | OpenTelemetry, Prometheus, Grafana, Loki |
 | Cloud Deployment | GCP Cloud Run, Artifact Registry, Workload Identity Federation |
 | Local Deployment | Docker Compose |

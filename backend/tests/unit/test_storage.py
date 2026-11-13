@@ -55,3 +55,61 @@ def test_download_nonexistent_raises(local_storage: StorageService):
     """Downloading non-existent object raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         local_storage.download_raw_document("sources/missing/missing.pdf")
+
+
+
+def test_gcs_storage_delegates_to_gcs_adapter(monkeypatch: pytest.MonkeyPatch):
+    """GCS operations use the remote adapter rather than local filesystem storage."""
+    from app.infrastructure.storage import gcs
+
+    calls: list[tuple[str, str]] = []
+    payload = b"gcs document bytes"
+    monkeypatch.setattr(
+        gcs,
+        "upload_file",
+        lambda data, object_name, content_type, metadata=None: (
+            calls.append(("upload", object_name)) or object_name
+        ),
+    )
+    monkeypatch.setattr(
+        gcs,
+        "download_file",
+        lambda object_name: calls.append(("download", object_name)) or payload,
+    )
+    monkeypatch.setattr(
+        gcs, "delete_file", lambda object_name: calls.append(("delete", object_name))
+    )
+    monkeypatch.setattr(
+        gcs,
+        "object_exists",
+        lambda object_name: calls.append(("exists", object_name)) or True,
+    )
+
+    storage = StorageService(provider="gcs", local_path="/tmp/opennotebook-gcs-test")
+    object_name = "raw/notebook/source/report.pdf"
+
+    assert storage.upload_raw_document(payload, object_name, "application/pdf") == object_name
+    assert storage.download_raw_document(object_name) == payload
+    assert storage.object_exists(object_name) is True
+    storage.delete_raw_document(object_name)
+
+    assert calls == [
+        ("upload", object_name),
+        ("download", object_name),
+        ("exists", object_name),
+        ("delete", object_name),
+    ]
+
+
+def test_gcs_upload_errors_do_not_fall_back_to_local(monkeypatch: pytest.MonkeyPatch):
+    """A failed GCS write must not silently create a local-only source object."""
+    from app.infrastructure.storage import gcs
+
+    def fail_upload(*args, **kwargs):
+        raise RuntimeError("GCS permission denied")
+
+    monkeypatch.setattr(gcs, "upload_file", fail_upload)
+    storage = StorageService(provider="gcs", local_path="/tmp/opennotebook-gcs-test")
+
+    with pytest.raises(RuntimeError, match="GCS permission denied"):
+        storage.upload_raw_document(b"payload", "raw/notebook/source/file.txt")
