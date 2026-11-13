@@ -116,7 +116,7 @@ For details, see:
 - [ ] Podcast-style dialogue
 - [ ] Multi-user workspaces + enterprise RBAC
 - [ ] Knowledge graph visualisation & Graph RAG
-- [ ] OCR for scanned PDFs
+- [x] OCR for scanned PDFs and raster image uploads
 - [ ] Community connector registry
 
 ---

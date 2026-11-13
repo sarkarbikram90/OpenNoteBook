@@ -79,7 +79,8 @@ multimodal retrieval.
 
 Changing `STORAGE_PROVIDER` does not copy existing objects between providers.
 Each source retains its recorded `storage_type`, so existing local or MinIO
-sources continue to be read and deleted from their original provider. Newly
+sources continue to be read and deleted from their original provider (local,
+MinIO or S3). Newly
 uploaded documents use GCS after the configuration change. To make the entire
 historical corpus GCS-only, run a separately verified migration and checksum
 validation before removing the old storage.

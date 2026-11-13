@@ -113,3 +113,90 @@ def test_gcs_upload_errors_do_not_fall_back_to_local(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(RuntimeError, match="GCS permission denied"):
         storage.upload_raw_document(b"payload", "raw/notebook/source/file.txt")
+
+
+
+def test_gcs_adapter_upload_download_exists_delete(monkeypatch: pytest.MonkeyPatch):
+    """Exercise the GCS SDK adapter with a fake bucket and ADC client."""
+    from types import SimpleNamespace
+
+    from google.cloud import storage
+
+    from app.infrastructure.storage import gcs
+
+    settings = SimpleNamespace(
+        gcs_project_id="test-project",
+        gcs_bucket="private-opennotebook",
+        gcs_timeout_seconds=7,
+    )
+    monkeypatch.setattr(gcs, "get_settings", lambda: settings)
+
+    # Validate client construction uses the configured project and ADC SDK path.
+    client_marker = object()
+    projects: list[str | None] = []
+    monkeypatch.setattr(
+        storage,
+        "Client",
+        lambda project=None: projects.append(project) or client_marker,
+    )
+    gcs.get_gcs_client.cache_clear()
+    assert gcs.get_gcs_client() is client_marker
+    assert projects == ["test-project"]
+    gcs.get_gcs_client.cache_clear()
+
+    class FakeBlob:
+        def __init__(self):
+            self.data: bytes | None = None
+            self.metadata: dict[str, str] | None = None
+            self.content_type: str | None = None
+
+        def upload_from_string(self, data, content_type, timeout):
+            self.data = data
+            self.content_type = content_type
+
+        def download_as_bytes(self, timeout):
+            if self.data is None:
+                raise FileNotFoundError("missing")
+            return self.data
+
+        def delete(self, timeout):
+            self.data = None
+
+        def exists(self, timeout):
+            return self.data is not None
+
+    class FakeBucket:
+        def __init__(self):
+            self.blobs: dict[str, FakeBlob] = {}
+
+        def blob(self, name):
+            return self.blobs.setdefault(name, FakeBlob())
+
+    bucket = FakeBucket()
+
+    class FakeClient:
+        def bucket(self, name):
+            assert name == settings.gcs_bucket
+            return bucket
+
+    monkeypatch.setattr(gcs, "get_gcs_client", lambda: FakeClient())
+
+    key = "raw/notebook-1/source-1/runbook.pdf"
+    content = b"gcs-backed runbook"
+    assert gcs.object_exists(key) is False
+    assert gcs.upload_file(
+        content,
+        key,
+        content_type="application/pdf",
+        metadata={"source_id": "source-1", "sha256": "abc123"},
+    ) == key
+    assert bucket.blobs[key].metadata == {
+        "source_id": "source-1",
+        "sha256": "abc123",
+    }
+    assert bucket.blobs[key].content_type == "application/pdf"
+    assert gcs.object_exists(key) is True
+    assert gcs.download_file(key) == content
+    gcs.delete_file(key)
+    assert gcs.object_exists(key) is False
+    gcs.get_gcs_client.cache_clear()

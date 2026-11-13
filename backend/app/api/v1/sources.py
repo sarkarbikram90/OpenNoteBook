@@ -189,12 +189,12 @@ async def upload_file_source(
     user: CurrentUser,
     db: DbSession,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="PDF, DOCX, TXT, or Markdown file"),
+    file: UploadFile = File(..., description="PDF, DOCX, TXT, Markdown, or supported image file"),
 ) -> SourceUploadResponse:
     """Upload a file source and queue it for async processing.
 
     1. Validates file type (MIME + extension) and size (≤50MB).
-    2. Uploads to MinIO.
+    2. Uploads to the configured object-storage provider.
     3. Creates Source record with PENDING status.
     4. Dispatches ``process_source`` Celery task (or fallback).
     5. Returns 202 Accepted with source_id.
@@ -427,8 +427,8 @@ async def delete_source(
 ) -> None:
     """Delete a source and its indexed data.
 
-    Removes vectors from Qdrant, the file from MinIO, and rebuilds the
-    BM25 index for the notebook.
+    Removes vectors and raw/processed objects from the source's configured
+    storage provider, then rebuilds the BM25 index for the notebook.
     """
     await _verify_notebook_ownership(notebook_id, user.id, db)
 
