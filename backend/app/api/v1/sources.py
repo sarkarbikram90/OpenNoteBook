@@ -111,6 +111,10 @@ def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTas
 # Supported MIME types for file uploads
 _ALLOWED_MIME_TYPES = {
     "application/pdf": "pdf",
+    "image/jpeg": "image",
+    "image/png": "image",
+    "image/webp": "image",
+    "image/tiff": "image",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "text/plain": "txt",
     "text/markdown": "md",
@@ -120,6 +124,12 @@ _ALLOWED_MIME_TYPES = {
 # Allowed file extensions as fallback
 _ALLOWED_EXTENSIONS = {
     ".pdf": "pdf",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".png": "image",
+    ".webp": "image",
+    ".tif": "image",
+    ".tiff": "image",
     ".docx": "docx",
     ".txt": "txt",
     ".md": "md",
@@ -207,7 +217,7 @@ async def upload_file_source(
             detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
         )
 
-    # Upload to Data Lake (MinIO/S3 with local lake fallback)
+    # Upload to the configured object-storage provider (GCS, MinIO/S3, or local).
     from app.infrastructure.storage.service import get_storage_service, StorageService
 
     file_hash = StorageService.calculate_file_hash(content)
@@ -238,6 +248,12 @@ async def upload_file_source(
         content,
         object_name,
         content_type=file.content_type or "application/octet-stream",
+        metadata={
+            "sha256": file_hash,
+            "source_id": str(source_id),
+            "notebook_id": str(notebook_id),
+            "original_filename": file.filename,
+        },
     )
 
     # Create source record with provenance metadata
@@ -427,13 +443,15 @@ async def delete_source(
     except Exception:
         pass
 
-    # Clean up MinIO file
+    # Delete the object from the provider recorded when the source was uploaded.
     if source.storage_path:
         try:
-            from app.infrastructure.minio.client import delete_file
-            delete_file(source.storage_path)
-        except Exception:
-            pass
+            from app.infrastructure.storage.service import get_storage_service
+
+            storage = get_storage_service(provider=source.storage_type)
+            storage.delete_raw_document(source.storage_path)
+        except Exception as storage_exc:
+            logger.warning("Could not delete source object %s: %s", source_id, storage_exc)
 
     await record_audit_event(
         db=db,

@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     max_files_per_request: int = 10
 
     # ── MinIO / Storage (Object Storage / Data Lake) ────
-    storage_provider: str = "minio"  # "minio", "s3", or "local"
+    storage_provider: str = "minio"  # "gcs", "minio", "s3", or "local"
     local_storage_path: str = "./data/lake"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
@@ -171,7 +171,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> Settings:
-        """Refuse to start in production with default/placeholder secrets."""
+        """Validate provider configuration and production secrets."""
+        if self.storage_provider.lower() == "gcs" and not self.gcs_bucket.strip():
+            raise ValueError("GCS_BUCKET must be configured when STORAGE_PROVIDER=gcs")
+
         if self.app_env.lower() in ("production", "prod"):
             weak = {
                 "",
