@@ -199,4 +199,3 @@ def test_gcs_adapter_upload_download_exists_delete(monkeypatch: pytest.MonkeyPat
     assert gcs.download_file(key) == content
     gcs.delete_file(key)
     assert gcs.object_exists(key) is False
-    gcs.get_gcs_client.cache_clear()

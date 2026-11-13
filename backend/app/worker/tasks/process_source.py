@@ -235,7 +235,7 @@ def execute_process_source(source_id: str) -> dict:
             # URL/YouTube: extract from the URL directly
             content = source["source_url"] or ""
         else:
-            # File-based: download from Data Lake (MinIO/S3 or local fallback)
+            # File-based: download from the provider recorded on this source (GCS/MinIO/local).
             storage_path = source["storage_path"]
             if not storage_path:
                 raise ValueError(f"No storage path for source {source_id}")

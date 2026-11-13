@@ -194,6 +194,9 @@ namespace_packages = true
 [[tool.mypy.overrides]]
 module = [
     "celery.*",
+    "google.*",
+    "PIL.*",
+    "pytesseract.*",
     "minio.*",
     "qdrant_client.*",
     "sentence_transformers.*",

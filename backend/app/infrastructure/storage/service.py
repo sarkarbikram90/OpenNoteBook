@@ -147,7 +147,12 @@ class StorageService:
             # silently writing to ephemeral local disk.
             from app.infrastructure.storage.gcs import upload_file
 
-            return upload_file(data, clean_object_name, content_type=content_type, metadata=metadata)
+            return upload_file(
+                data,
+                clean_object_name,
+                content_type=content_type,
+                metadata=metadata,
+            )
 
         if self.provider in ("minio", "s3"):
             try:
