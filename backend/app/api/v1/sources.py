@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.schemas.sources import (
     SourceListResponse,
@@ -244,7 +245,8 @@ async def upload_file_source(
     object_name = raw_key(str(notebook_id), str(source_id), file.filename)
 
     storage = get_storage_service()
-    storage.upload_raw_document(
+    await run_in_threadpool(
+        storage.upload_raw_document,
         content,
         object_name,
         content_type=file.content_type or "application/octet-stream",
@@ -459,9 +461,13 @@ async def delete_source(
 
         storage = get_storage_service(provider=source.storage_type)
         if source.storage_path:
-            storage.delete_raw_document(source.storage_path)
-        storage.delete_raw_document(processed_document_key(str(source_id)))
-        storage.delete_raw_document(processed_metadata_key(str(source_id)))
+            await run_in_threadpool(storage.delete_raw_document, source.storage_path)
+        await run_in_threadpool(
+            storage.delete_raw_document, processed_document_key(str(source_id))
+        )
+        await run_in_threadpool(
+            storage.delete_raw_document, processed_metadata_key(str(source_id))
+        )
     except Exception as storage_exc:
         logger.exception("Could not delete stored objects for source %s", source_id)
         raise HTTPException(

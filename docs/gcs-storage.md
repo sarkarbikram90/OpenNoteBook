@@ -62,13 +62,24 @@ configuration and Google identity.
 2. It computes SHA-256 and stores the original object in GCS under
    `raw/{notebook_id}/{source_id}/{filename}`.
 3. The database records `storage_type=gcs` and the object key.
-4. The existing Celery task downloads the object from its recorded provider.
+4. The API dispatches the existing Celery task; the worker downloads
+   the object from its recorded provider.
 5. The existing extractor, PII redaction, chunker and BGE embedding pipeline
    process the document.
 6. Qdrant stores vectors and ACL-aware chunk payloads; BM25 builds lexical
    indexes.
 7. The RAG orchestrator retrieves authorized chunks and streams grounded LLM
    responses with citations.
+
+This phase intentionally does not add a second GCS Pub/Sub notification path:
+uploads made through OpenNotebook already enqueue Celery work. A Pub/Sub
+consumer is a future extension for files written to the bucket by external
+systems, and must be deduplicated against the existing upload path.
+
+The LLM provider remains controlled by the existing `LLM_PROVIDER` setting
+(default: Ollama); the existing Gemini provider can be configured separately.
+The embedding pipeline remains BGE with Qdrant. This GCS change does not claim
+to add Vertex AI embeddings or Vertex AI model serving.
 
 Processed text and metadata artifacts are written to the same provider recorded
 for the source. Re-indexing therefore does not require re-uploading. The
