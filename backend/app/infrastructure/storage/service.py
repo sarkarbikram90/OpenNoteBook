@@ -1,9 +1,10 @@
 """OpenNotebook — Central Data Lake and Object Storage service.
 
 Provides a unified storage interface supporting:
-1. S3 / MinIO Object Storage
-2. Local filesystem fallback for dev/testing
-3. SHA-256 cryptographic provenance hashing
+1. Google Cloud Storage (GCS)
+2. S3 / MinIO Object Storage
+3. Local filesystem fallback for dev/testing
+4. SHA-256 cryptographic provenance hashing
 """
 
 from __future__ import annotations
@@ -141,6 +142,13 @@ class StorageService:
         # Normalize key
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            # GCS is authoritative when selected: propagate failures rather than
+            # silently writing to ephemeral local disk.
+            from app.infrastructure.storage.gcs import upload_file
+
+            return upload_file(data, clean_object_name, content_type=content_type, metadata=metadata)
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import upload_file, ensure_bucket
@@ -180,6 +188,10 @@ class StorageService:
         """
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import download_file
+            return download_file(clean_object_name)
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import download_file
@@ -205,6 +217,11 @@ class StorageService:
         """
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import delete_file
+            delete_file(clean_object_name)
+            return
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import delete_file
@@ -223,6 +240,10 @@ class StorageService:
     def object_exists(self, object_name: str) -> bool:
         """Check whether an object exists in the lake."""
         clean_object_name = object_name.lstrip("/")
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import object_exists
+            return object_exists(clean_object_name)
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import get_minio_client
@@ -255,7 +276,11 @@ class StorageService:
             logger.info("Deleted local storage file: %s", target_path)
 
 
-@lru_cache(maxsize=1)
-def get_storage_service() -> StorageService:
-    """Return cached singleton instance of StorageService."""
-    return StorageService()
+@lru_cache(maxsize=8)
+def get_storage_service(provider: str | None = None) -> StorageService:
+    """Return a cached storage service, optionally pinned to a source's provider.
+
+    Provider pinning keeps older local/MinIO documents accessible after the
+    default provider is changed for new uploads.
+    """
+    return StorageService(provider=provider)

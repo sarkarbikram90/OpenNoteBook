@@ -143,6 +143,7 @@ def _get_source_record(source_id: str) -> dict:
             "name": source.name,
             "source_type": source.source_type,
             "storage_path": source.storage_path,
+            "storage_type": getattr(source, "storage_type", None),
             "source_url": source.source_url,
             "sensitivity_level": getattr(source, "sensitivity_level", "internal"),
             "allowed_roles": list(getattr(source, "allowed_roles", []) or []),
@@ -159,6 +160,7 @@ def _persist_processed_artifacts(
     pii_entities: dict[str, int],
     sensitivity_level: str,
     notebook_id: str,
+    storage_provider: str | None = None,
 ) -> None:
     """Write the redacted text and processing metadata to the lake under processed/."""
     import json
@@ -170,7 +172,7 @@ def _persist_processed_artifacts(
     )
     from app.infrastructure.storage.service import get_storage_service
 
-    storage = get_storage_service()
+    storage = get_storage_service(provider=storage_provider)
     storage.upload_artifact(
         (text or "").encode("utf-8"),
         processed_document_key(source_id),
@@ -237,7 +239,9 @@ def execute_process_source(source_id: str) -> dict:
             storage_path = source["storage_path"]
             if not storage_path:
                 raise ValueError(f"No storage path for source {source_id}")
-            storage = get_storage_service()
+            storage = get_storage_service(
+                provider=source.get("storage_type") or settings.storage_provider
+            )
             content = storage.download_raw_document(storage_path)
 
         extraction = extract(source_type, content)
@@ -305,6 +309,7 @@ def execute_process_source(source_id: str) -> dict:
                 pii_entities=pii_entities,
                 sensitivity_level=sensitivity_level,
                 notebook_id=notebook_id,
+                storage_provider=source.get("storage_type") or settings.storage_provider,
             )
         except Exception as persist_exc:
             logger.warning("Could not persist processed artifacts to lake: %s", persist_exc)

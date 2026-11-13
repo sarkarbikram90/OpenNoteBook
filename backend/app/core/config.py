@@ -117,6 +117,12 @@ class Settings(BaseSettings):
     minio_bucket: str = "opennotebook"
     minio_secure: bool = False
 
+    # ── Google Cloud Storage ─────────────────────
+    # Credentials are resolved through Application Default Credentials (ADC).
+    gcs_bucket: str = ""
+    gcs_project_id: str = ""
+    gcs_timeout_seconds: int = 60
+
     # ── Qdrant (Vector Store) ────────────────────
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
