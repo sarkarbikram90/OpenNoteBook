@@ -171,7 +171,7 @@ def _detect_source_type(filename: str, content_type: str | None) -> str:
 
     raise HTTPException(
         status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        detail=f"Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown",
+        detail=f"Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown, JPEG, PNG, WEBP, TIFF",
     )
 
 

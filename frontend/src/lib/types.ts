@@ -20,7 +20,7 @@ export interface Source {
   id: string;
   notebook_id: string;
   name: string;
-  source_type: 'pdf' | 'docx' | 'txt' | 'md' | 'url' | 'youtube';
+  source_type: 'pdf' | 'image' | 'docx' | 'txt' | 'md' | 'url' | 'youtube';
   status: SourceStatus;
   error_message: string | null;
   page_count: number | null;
