@@ -172,7 +172,10 @@ def _detect_source_type(filename: str, content_type: str | None) -> str:
 
     raise HTTPException(
         status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        detail=f"Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown, JPEG, PNG, WEBP, TIFF",
+        detail=(
+            "Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown, "
+            "JPEG, PNG, WEBP, TIFF"
+        ),
     )
 
 
@@ -190,7 +193,10 @@ async def upload_file_source(
     user: CurrentUser,
     db: DbSession,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="PDF, DOCX, TXT, Markdown, or supported image file"),
+    file: UploadFile = File(
+        ...,
+        description="PDF, DOCX, TXT, Markdown, or supported image file",
+    ),
 ) -> SourceUploadResponse:
     """Upload a file source and queue it for async processing.
 
@@ -219,7 +225,7 @@ async def upload_file_source(
         )
 
     # Upload to the configured object-storage provider (GCS, MinIO/S3, or local).
-    from app.infrastructure.storage.service import get_storage_service, StorageService
+    from app.infrastructure.storage.service import StorageService, get_storage_service
 
     file_hash = StorageService.calculate_file_hash(content)
 

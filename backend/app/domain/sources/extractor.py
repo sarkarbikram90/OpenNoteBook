@@ -492,7 +492,7 @@ def _parse_youtube_id(url: str) -> str | None:
 # ── Image OCR (PNG / JPEG / WEBP / TIFF) ────────────────────────────────────
 
 
-def _extract_image(content: bytes | str, **kwargs: Any) -> ExtractionResult:
+def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
     """Extract text embedded in a raster image using Pillow + Tesseract OCR.
 
     This indexes screenshots, scanned pages and diagrams with readable labels.
