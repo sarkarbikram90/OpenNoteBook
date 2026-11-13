@@ -309,12 +309,18 @@ async def upload_url_source(
     source_id = uuid.uuid4()
     name = body.name or body.url[:100]
 
+    from app.infrastructure.storage.service import get_storage_service
+
+    # URL/transcript sources have no raw upload, but their processed artifacts
+    # must still be written to the configured object-storage provider.
+    storage_provider = get_storage_service().provider
     source = Source(
         id=source_id,
         notebook_id=notebook_id,
         name=name,
         source_type=body.source_type,
         source_url=body.url,
+        storage_type=storage_provider,
         status="PENDING",
     )
     db.add(source)
@@ -443,15 +449,25 @@ async def delete_source(
     except Exception:
         pass
 
-    # Delete the object from the provider recorded when the source was uploaded.
-    if source.storage_path:
-        try:
-            from app.infrastructure.storage.service import get_storage_service
+    # Delete raw and processed objects from the provider recorded for this source.
+    try:
+        from app.infrastructure.storage.paths import (
+            processed_document_key,
+            processed_metadata_key,
+        )
+        from app.infrastructure.storage.service import get_storage_service
 
-            storage = get_storage_service(provider=source.storage_type)
+        storage = get_storage_service(provider=source.storage_type)
+        if source.storage_path:
             storage.delete_raw_document(source.storage_path)
-        except Exception as storage_exc:
-            logger.warning("Could not delete source object %s: %s", source_id, storage_exc)
+        storage.delete_raw_document(processed_document_key(str(source_id)))
+        storage.delete_raw_document(processed_metadata_key(str(source_id)))
+    except Exception as storage_exc:
+        logger.exception("Could not delete stored objects for source %s", source_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not delete source objects from configured storage",
+        ) from storage_exc
 
     await record_audit_event(
         db=db,
