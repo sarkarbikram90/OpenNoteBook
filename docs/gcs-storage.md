@@ -21,15 +21,25 @@ Grant the identity used by both the API and Celery worker bucket-level
 `roles/storage.objectUser` on the bucket. This permits object creation,
 reading, updating and deletion without granting bucket administration.
 
-For local development:
+For local development, create ADC credentials and mount them into both
+containers using the optional Compose override:
 
 ```bash
 gcloud auth application-default login
+export GOOGLE_APPLICATION_CREDENTIALS_HOST="$HOME/.config/gcloud/application_default_credentials.json"
+
+# Set STORAGE_PROVIDER=gcs and the GCS_* values in .env, then:
+docker compose -f docker-compose.yml -f docker-compose.gcs.yml up -d --build
 ```
 
+The override mounts the host ADC file read-only at
+`/var/run/google/adc.json` in the API and worker containers. On Windows, set
+`GOOGLE_APPLICATION_CREDENTIALS_HOST` to the host path of the ADC JSON file.
+
 For Cloud Run, attach a dedicated runtime service account and grant the same
-bucket-scoped role to that service account. Do not store service-account JSON
-keys in the repository, container image or `.env` file.
+bucket-scoped role to that service account. ADC will discover the attached
+identity without a key file. Do not store service-account JSON keys in the
+repository, container image or `.env` file.
 
 ## 3. Configure OpenNotebook
 
