@@ -1,7 +1,8 @@
 """OpenNotebook — Text extraction from multiple source types.
 
-Supports PDF (PyMuPDF), DOCX (python-docx), TXT/Markdown (raw text),
-URL (trafilatura), and YouTube (youtube-transcript-api).
+Supports PDF (PyMuPDF), raster image OCR (Pillow + Tesseract), DOCX
+(python-docx), TXT/Markdown (raw text), URL (trafilatura), and YouTube
+(youtube-transcript-api).
 
 Each extractor returns an ``ExtractionResult`` with the full text,
 per-page content, and document-level metadata.
@@ -45,7 +46,7 @@ def extract(source_type: str, content: bytes | str, **kwargs: Any) -> Extraction
     """Route extraction to the appropriate handler based on source type.
 
     Args:
-        source_type: One of ``pdf``, ``docx``, ``txt``, ``md``, ``url``, ``youtube``.
+        source_type: One of ``pdf``, ``image``, ``docx``, ``txt``, ``md``, ``url``, ``youtube``.
         content: Raw file bytes (for pdf/docx/txt/md) or a URL string (for url/youtube).
         **kwargs: Additional arguments passed to specific extractors.
 
@@ -514,7 +515,12 @@ def _extract_image(content: bytes | str, **kwargs: Any) -> ExtractionResult:
                 width, height = source_image.size
                 image = ImageOps.exif_transpose(source_image).convert("RGB")
                 image.load()
-    except (Image.UnidentifiedImageError, Image.DecompressionBombError, OSError) as exc:
+    except (
+        Image.UnidentifiedImageError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+    ) as exc:
         raise ValueError(f"Invalid or unsafe image: {exc}") from exc
 
     try:

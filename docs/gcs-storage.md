@@ -61,7 +61,9 @@ configuration and Google identity.
    responses with citations.
 
 Processed text and metadata artifacts are written to the same provider recorded
-for the source. Re-indexing therefore does not require re-uploading.
+for the source. Re-indexing therefore does not require re-uploading. The
+Prometheus metrics endpoint records GCS operation counts, durations, outcomes
+and bytes transferred without adding high-cardinality bucket or object labels.
 
 ## 5. Supported files and image limitation
 

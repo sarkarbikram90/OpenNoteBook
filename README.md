@@ -90,6 +90,7 @@ OpenNotebook runs locally via Docker Compose or in production on **Google Cloud 
 For details, see:
 * [docs/architecture.md](docs/architecture.md) — System design and data flows
 * [docs/production-deploy.md](docs/production-deploy.md) — GCP Cloud Run deployment walkthrough
+* [docs/gcs-storage.md](docs/gcs-storage.md) — private GCS bucket setup and ingestion configuration
 
 ---
 

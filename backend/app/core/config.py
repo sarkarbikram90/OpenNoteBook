@@ -184,8 +184,8 @@ class Settings(BaseSettings):
             }
             if self.jwt_secret_key in weak or len(self.jwt_secret_key) < 32:
                 raise ValueError("JWT_SECRET_KEY must be a strong, unique value in production")
-            if self.minio_secret_key in weak:
-                raise ValueError("MINIO_SECRET_KEY must be set in production")
+            if self.storage_provider.lower() in ("minio", "s3") and self.minio_secret_key in weak:
+                raise ValueError("MINIO_SECRET_KEY must be set when using MinIO/S3 in production")
         return self
 
 

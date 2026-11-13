@@ -63,6 +63,28 @@ job_failures_total = Counter(
     registry=REGISTRY,
 )
 
+# Object-storage metrics (provider/operation labels are intentionally low-cardinality).
+storage_operations_total = Counter(
+    "opennotebook_storage_operations_total",
+    "Object-storage operations by provider, operation and outcome",
+    ["provider", "operation", "status"],
+    registry=REGISTRY,
+)
+
+storage_operation_duration = Histogram(
+    "opennotebook_storage_operation_duration_seconds",
+    "Object-storage operation duration in seconds",
+    ["provider", "operation"],
+    registry=REGISTRY,
+)
+
+storage_bytes_total = Counter(
+    "opennotebook_storage_bytes_total",
+    "Bytes uploaded to or downloaded from object storage",
+    ["provider", "operation"],
+    registry=REGISTRY,
+)
+
 # Product Metrics
 active_sources = Gauge(
     "opennotebook_active_sources",
