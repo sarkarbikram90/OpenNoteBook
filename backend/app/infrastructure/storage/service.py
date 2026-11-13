@@ -10,10 +10,9 @@ Provides a unified storage interface supporting:
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
@@ -61,10 +60,9 @@ class StorageService:
 
     @property
     def provider(self) -> str:
-        """Return the effective storage provider, auto-routing to local if MinIO/S3 is unreachable."""
-        if self._provider in ("minio", "s3"):
-            if not self._is_minio_available():
-                return "local"
+        """Return the effective provider, falling back locally if MinIO/S3 is unreachable."""
+        if self._provider in ("minio", "s3") and not self._is_minio_available():
+            return "local"
         return self._provider
 
     @provider.setter
@@ -156,7 +154,7 @@ class StorageService:
 
         if self.provider in ("minio", "s3"):
             try:
-                from app.infrastructure.minio.client import upload_file, ensure_bucket
+                from app.infrastructure.minio.client import ensure_bucket, upload_file
 
                 ensure_bucket()
                 return upload_file(data, clean_object_name, content_type=content_type)
@@ -256,8 +254,12 @@ class StorageService:
                 client = get_minio_client()
                 client.stat_object(self.settings.minio_bucket, clean_object_name)
                 return True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "MinIO object existence check failed for %s: %s",
+                    clean_object_name,
+                    exc,
+                )
         target_path = self.local_root / clean_object_name
         return target_path.is_file()
 
