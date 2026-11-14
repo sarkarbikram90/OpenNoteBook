@@ -239,7 +239,9 @@ def _dense_search(
     query_vector = query_vectors[0]
 
     # Build filter: notebook_id is mandatory, source_id is optional
-    must_conditions = [FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))]
+    must_conditions: list[Any] = [
+        FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))
+    ]
     search_filter = Filter(must=must_conditions)
 
     # Fetch slightly larger candidate set to allow for ACL security trimming

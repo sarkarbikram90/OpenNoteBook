@@ -93,7 +93,9 @@ def load_bm25_index(notebook_id: str) -> tuple[BM25Okapi | None, list[str]]:
         corpus_data = redis_client.get(f"{_BM25_KEY_PREFIX}{notebook_id}")
         docs_data = redis_client.get(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
 
-        if corpus_data is None or docs_data is None:
+        if not isinstance(corpus_data, (str, bytes, bytearray)) or not isinstance(
+            docs_data, (str, bytes, bytearray)
+        ):
             return None, []
 
         tokenised_corpus = json.loads(corpus_data)

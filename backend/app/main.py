@@ -43,7 +43,7 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown hooks."""
     import asyncio
 
@@ -79,7 +79,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         from sqlalchemy import select
 
-        import app.infrastructure.db.models  # noqa: F401
         from app.core.auth import hash_password
         from app.infrastructure.db.base import Base
         from app.infrastructure.db.models import User, UserSettings
@@ -125,7 +124,7 @@ app = FastAPI(
 
 # Rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 @app.exception_handler(Exception)

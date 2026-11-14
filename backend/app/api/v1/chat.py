@@ -488,10 +488,16 @@ def _export_pdf(session: ChatSession, messages: list[Message]) -> Response:
 
     # Title
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, session.title[:80], ln=True)
+    pdf.cell(0, 10, session.title[:80], new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_font("Helvetica", "", 9)
-    pdf.cell(0, 6, f"Exported on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", ln=True)
+    pdf.cell(
+        0,
+        6,
+        f"Exported on {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
     pdf.ln(5)
 
     all_citations: list[dict] = []
@@ -500,7 +506,7 @@ def _export_pdf(session: ChatSession, messages: list[Message]) -> Response:
         # Role header
         pdf.set_font("Helvetica", "B", 11)
         role_label = "You" if msg.role == "user" else "Assistant"
-        pdf.cell(0, 8, role_label, ln=True)
+        pdf.cell(0, 8, role_label, new_x="LMARGIN", new_y="NEXT")
 
         # Message content
         pdf.set_font("Helvetica", "", 10)
@@ -516,7 +522,7 @@ def _export_pdf(session: ChatSession, messages: list[Message]) -> Response:
     if all_citations:
         pdf.ln(5)
         pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, "Sources used", ln=True)
+        pdf.cell(0, 8, "Sources used", new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 10)
 
         seen: set[str] = set()
@@ -531,7 +537,7 @@ def _export_pdf(session: ChatSession, messages: list[Message]) -> Response:
             page_str = f" - page {page}" if page else ""
             safe_line = f"{idx}. {name}{page_str}"
             safe_line = safe_line.encode("latin-1", errors="replace").decode("latin-1")
-            pdf.cell(0, 6, safe_line, ln=True)
+            pdf.cell(0, 6, safe_line, new_x="LMARGIN", new_y="NEXT")
             idx += 1
 
     # Output

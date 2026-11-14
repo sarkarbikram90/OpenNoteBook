@@ -12,6 +12,7 @@ import os
 import random
 import sys
 import uuid
+from typing import Any
 
 from bcrypt import gensalt, hashpw
 from fpdf import FPDF
@@ -201,7 +202,7 @@ def seed_db() -> None:
             ("lorem_ipsum_research.pdf", "Lorem Ipsum Research on Large Language Models", lorem_ipsum_text),
         ]
 
-        chunks_to_upsert = []
+        chunks_to_upsert: list[dict[str, Any]] = []
 
         for filename, title, raw_text in pdf_definitions:
             local_path = generate_pdf(filename, title, raw_text)
