@@ -12,7 +12,6 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 from app.domain.retrieval.retriever import RetrievedChunk
 

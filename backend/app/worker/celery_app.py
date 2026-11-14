@@ -15,6 +15,9 @@ except ImportError:
 
 
 if CELERY_AVAILABLE:
+    from app.core.config import get_settings
+
+    settings = get_settings()
     celery_app = Celery(
         "opennotebook",
         broker=settings.celery_broker_url,
@@ -62,6 +65,7 @@ if CELERY_AVAILABLE:
     try:
         import time
         from typing import Any
+
         from celery.signals import task_failure, task_postrun, task_prerun, worker_process_init
         from opentelemetry.instrumentation.celery import CeleryInstrumentor
 

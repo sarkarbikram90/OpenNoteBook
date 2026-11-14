@@ -1,7 +1,8 @@
 """OpenNotebook — Text extraction from multiple source types.
 
-Supports PDF (PyMuPDF), DOCX (python-docx), TXT/Markdown (raw text),
-URL (trafilatura), and YouTube (youtube-transcript-api).
+Supports PDF (PyMuPDF), raster image OCR (Pillow + Tesseract), DOCX
+(python-docx), TXT/Markdown (raw text), URL (trafilatura), and YouTube
+(youtube-transcript-api).
 
 Each extractor returns an ``ExtractionResult`` with the full text,
 per-page content, and document-level metadata.
@@ -45,7 +46,7 @@ def extract(source_type: str, content: bytes | str, **kwargs: Any) -> Extraction
     """Route extraction to the appropriate handler based on source type.
 
     Args:
-        source_type: One of ``pdf``, ``docx``, ``txt``, ``md``, ``url``, ``youtube``.
+        source_type: One of ``pdf``, ``image``, ``docx``, ``txt``, ``md``, ``url``, ``youtube``.
         content: Raw file bytes (for pdf/docx/txt/md) or a URL string (for url/youtube).
         **kwargs: Additional arguments passed to specific extractors.
 
@@ -57,6 +58,7 @@ def extract(source_type: str, content: bytes | str, **kwargs: Any) -> Extraction
     """
     extractors = {
         "pdf": _extract_pdf,
+        "image": _extract_image,
         "docx": _extract_docx,
         "txt": _extract_text,
         "md": _extract_text,
@@ -349,13 +351,6 @@ def _extract_url(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     if text is None:
         raise ValueError(f"Failed to extract text from URL: {url}")
 
-    # Try to get metadata
-    metadata_result = trafilatura.extract(
-        downloaded,
-        output_format="json",
-        include_comments=False,
-    )
-
     metadata: dict[str, Any] = {
         "format": "url",
         "source_url": url,
@@ -484,3 +479,60 @@ def _parse_youtube_id(url: str) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+
+# ── Image OCR (PNG / JPEG / WEBP / TIFF) ────────────────────────────────────
+
+
+def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
+    """Extract text embedded in a raster image using Pillow + Tesseract OCR.
+
+    This indexes screenshots, scanned pages and diagrams with readable labels.
+    It does not create visual embeddings or image captions.
+    """
+    import io
+    import warnings
+
+    import pytesseract
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(content)) as source_image:
+                image_format = (source_image.format or "unknown").lower()
+                width, height = source_image.size
+                image = ImageOps.exif_transpose(source_image).convert("RGB")
+                image.load()
+    except (
+        UnidentifiedImageError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+    ) as exc:
+        raise ValueError(f"Invalid or unsafe image: {exc}") from exc
+
+    try:
+        text = str(pytesseract.image_to_string(image, lang="eng")).strip()
+    except Exception as exc:
+        logger.exception("Image OCR failed")
+        raise RuntimeError(f"Image OCR failed: {exc}") from exc
+    finally:
+        image.close()
+
+    return ExtractionResult(
+        text=text,
+        metadata={
+            "format": image_format,
+            "page_count": 1,
+            "ocr_used": True,
+            "image_width": width,
+            "image_height": height,
+            "textless_image": not bool(text),
+        },
+        pages=[PageContent(page_number=1, text=text, section="Image OCR")],
+    )

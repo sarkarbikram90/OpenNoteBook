@@ -18,6 +18,10 @@ type Tab = 'file' | 'url';
 
 const ACCEPT = {
   'application/pdf': ['.pdf'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+  'image/tiff': ['.tif', '.tiff'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'text/plain': ['.txt'],
   'text/markdown': ['.md'],
@@ -112,7 +116,7 @@ export function UploadModal({
               {isDragActive ? 'Drop files here' : 'Drag & drop files here'}
             </p>
             <p className="text-xs text-surface-500 mt-1">
-              PDF, DOCX, TXT, Markdown · Max 50MB each
+              PDF, DOCX, TXT, Markdown, JPEG, PNG, WEBP, TIFF · Max 50MB each
             </p>
           </div>
 

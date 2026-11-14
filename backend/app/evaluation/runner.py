@@ -93,7 +93,7 @@ def build_report(
         )
         if any(r.dont_know_correct is not None for r in results)
         else None,
-        mean_groundedness=_mean([r.groundedness for r in results]),
+        mean_groundedness=_mean([r.groundedness for r in results if r.groundedness is not None]),
         hallucination_rate=_mean(
             [1.0 if r.hallucinated else 0.0 for r in results if r.hallucinated is not None]
         )

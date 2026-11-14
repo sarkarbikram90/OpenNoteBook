@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api.v1.schemas.jobs import (
     FailedJobListResponse,

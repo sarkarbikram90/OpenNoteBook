@@ -6,7 +6,7 @@ Connects to AWS S3 or MinIO buckets to ingest enterprise files (.pdf, .docx, .tx
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,7 +91,7 @@ class S3BucketConnector(BaseConnector):
                 if since is not None and obj.last_modified is not None:
                     last_modified = obj.last_modified
                     if last_modified.tzinfo is None:
-                        last_modified = last_modified.replace(tzinfo=timezone.utc)
+                        last_modified = last_modified.replace(tzinfo=UTC)
                     if last_modified < since:
                         continue
 

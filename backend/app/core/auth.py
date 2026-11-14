@@ -58,7 +58,7 @@ def revoke_token(jti: str, expires_in_seconds: int | None = None) -> None:
     """Add a JTI to the revocation blacklist (backed by Redis with in-memory fallback)."""
     _revoked_jtis.add(jti)
     try:
-        from app.infrastructure.redis.client import is_redis_available, get_sync_redis
+        from app.infrastructure.redis.client import get_sync_redis, is_redis_available
 
         if not is_redis_available():
             return
@@ -76,7 +76,7 @@ def is_token_revoked(jti: str) -> bool:
     if jti in _revoked_jtis:
         return True
     try:
-        from app.infrastructure.redis.client import is_redis_available, get_sync_redis
+        from app.infrastructure.redis.client import get_sync_redis, is_redis_available
 
         if not is_redis_available():
             return False

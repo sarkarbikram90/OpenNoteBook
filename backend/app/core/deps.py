@@ -47,7 +47,7 @@ async def get_current_user(
     try:
         payload = decode_token(credentials.credentials)
     except JWTError:
-        raise credentials_exception
+        raise credentials_exception from None
 
     if payload.type != "access":
         raise credentials_exception

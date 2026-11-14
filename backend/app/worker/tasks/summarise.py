@@ -12,9 +12,6 @@ import logging
 import traceback
 import uuid
 
-from sqlalchemy import select, update
-
-from app.core.config import get_settings
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -109,7 +106,7 @@ def generate_summary(self, source_id: str) -> dict:
         logger.error("Summarisation failed for %s: %s", source_id, exc, exc_info=True)
 
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=exc)
+            raise self.retry(exc=exc) from exc
 
         # Log to DLQ
         from app.worker.dlq import handle_dlq
@@ -136,6 +133,7 @@ async def _async_generate(prompt: str) -> str:
 def _get_source_record(source_id: str) -> dict:
     """Fetch source record from the database."""
     from sqlalchemy import select as sa_select
+
     from app.infrastructure.db.models import Source
     from app.worker.tasks.process_source import _get_sync_session
 

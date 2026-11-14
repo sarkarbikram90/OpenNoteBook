@@ -1,6 +1,6 @@
 /** OpenNotebook — Settings page: model registry, temperature, context window. */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Save, Loader2, Cpu, Thermometer, Layers, Hash, Zap } from 'lucide-react';
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings';
 import { Spinner } from '@/components/ui/Spinner';
@@ -10,21 +10,16 @@ export function SettingsPage() {
   const { data: settings, isLoading } = useSettings();
   const updateMutation = useUpdateSettings();
 
-  const [form, setForm] = useState<SettingsUpdate>({});
-
-  // Sync form with fetched settings
-  useEffect(() => {
-    if (settings) {
-      setForm({
-        llm_model: settings.llm_model,
-        embedding_model: settings.embedding_model,
-        reranker_model: settings.reranker_model,
-        llm_temperature: settings.llm_temperature,
-        context_window: settings.context_window,
-        max_chunks: settings.max_chunks,
-      });
-    }
-  }, [settings]);
+  const [overrides, setOverrides] = useState<SettingsUpdate>({});
+  const form: SettingsUpdate = {
+    llm_model: overrides.llm_model ?? settings?.llm_model,
+    embedding_model: overrides.embedding_model ?? settings?.embedding_model,
+    reranker_model: overrides.reranker_model ?? settings?.reranker_model,
+    llm_temperature: overrides.llm_temperature ?? settings?.llm_temperature,
+    context_window: overrides.context_window ?? settings?.context_window,
+    max_chunks: overrides.max_chunks ?? settings?.max_chunks,
+  };
+  const setForm = setOverrides;
 
   const handleSave = () => {
     updateMutation.mutate(form);

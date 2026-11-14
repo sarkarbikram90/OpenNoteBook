@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Annotated
+from datetime import UTC
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.schemas.sources import (
     SourceListResponse,
@@ -111,6 +112,10 @@ def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTas
 # Supported MIME types for file uploads
 _ALLOWED_MIME_TYPES = {
     "application/pdf": "pdf",
+    "image/jpeg": "image",
+    "image/png": "image",
+    "image/webp": "image",
+    "image/tiff": "image",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "text/plain": "txt",
     "text/markdown": "md",
@@ -120,6 +125,12 @@ _ALLOWED_MIME_TYPES = {
 # Allowed file extensions as fallback
 _ALLOWED_EXTENSIONS = {
     ".pdf": "pdf",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".png": "image",
+    ".webp": "image",
+    ".tif": "image",
+    ".tiff": "image",
     ".docx": "docx",
     ".txt": "txt",
     ".md": "md",
@@ -161,7 +172,10 @@ def _detect_source_type(filename: str, content_type: str | None) -> str:
 
     raise HTTPException(
         status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        detail=f"Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown",
+        detail=(
+            "Unsupported file type. Allowed: PDF, DOCX, TXT, Markdown, "
+            "JPEG, PNG, WEBP, TIFF"
+        ),
     )
 
 
@@ -179,12 +193,15 @@ async def upload_file_source(
     user: CurrentUser,
     db: DbSession,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="PDF, DOCX, TXT, or Markdown file"),
+    file: UploadFile = File(
+        ...,
+        description="PDF, DOCX, TXT, Markdown, or supported image file",
+    ),
 ) -> SourceUploadResponse:
     """Upload a file source and queue it for async processing.
 
     1. Validates file type (MIME + extension) and size (≤50MB).
-    2. Uploads to MinIO.
+    2. Uploads to the configured object-storage provider.
     3. Creates Source record with PENDING status.
     4. Dispatches ``process_source`` Celery task (or fallback).
     5. Returns 202 Accepted with source_id.
@@ -207,8 +224,8 @@ async def upload_file_source(
             detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
         )
 
-    # Upload to Data Lake (MinIO/S3 with local lake fallback)
-    from app.infrastructure.storage.service import get_storage_service, StorageService
+    # Upload to the configured object-storage provider (GCS, MinIO/S3, or local).
+    from app.infrastructure.storage.service import StorageService, get_storage_service
 
     file_hash = StorageService.calculate_file_hash(content)
 
@@ -234,10 +251,17 @@ async def upload_file_source(
     object_name = raw_key(str(notebook_id), str(source_id), file.filename)
 
     storage = get_storage_service()
-    storage.upload_raw_document(
+    await run_in_threadpool(
+        storage.upload_raw_document,
         content,
         object_name,
         content_type=file.content_type or "application/octet-stream",
+        metadata={
+            "sha256": file_hash,
+            "source_id": str(source_id),
+            "notebook_id": str(notebook_id),
+            "original_filename": file.filename,
+        },
     )
 
     # Create source record with provenance metadata
@@ -293,12 +317,18 @@ async def upload_url_source(
     source_id = uuid.uuid4()
     name = body.name or body.url[:100]
 
+    from app.infrastructure.storage.service import get_storage_service
+
+    # URL/transcript sources have no raw upload, but their processed artifacts
+    # must still be written to the configured object-storage provider.
+    storage_provider = get_storage_service().provider
     source = Source(
         id=source_id,
         notebook_id=notebook_id,
         name=name,
         source_type=body.source_type,
         source_url=body.url,
+        storage_type=storage_provider,
         status="PENDING",
     )
     db.add(source)
@@ -344,13 +374,13 @@ async def list_sources(
     sources = list(result.scalars().all())
 
     # Auto-heal: Check if any sources are stuck in PENDING or EXTRACTING for > 30 seconds
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime
+    now = datetime.now(UTC)
     for s in sources:
         if s.status in ("PENDING", "EXTRACTING", "CHUNKING", "EMBEDDING"):
             created = getattr(s, "created_at", None)
             if created:
-                created_dt = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
+                created_dt = created.replace(tzinfo=UTC) if created.tzinfo is None else created
                 if (now - created_dt).total_seconds() > 30:
                     logger.info("Found stuck source %s in status %s; triggering auto-heal reprocess", s.id, s.status)
                     _dispatch_source_task(s.id, background_tasks)
@@ -405,8 +435,8 @@ async def delete_source(
 ) -> None:
     """Delete a source and its indexed data.
 
-    Removes vectors from Qdrant, the file from MinIO, and rebuilds the
-    BM25 index for the notebook.
+    Removes vectors and raw/processed objects from the source's configured
+    storage provider, then rebuilds the BM25 index for the notebook.
     """
     await _verify_notebook_ownership(notebook_id, user.id, db)
 
@@ -427,13 +457,29 @@ async def delete_source(
     except Exception:
         pass
 
-    # Clean up MinIO file
-    if source.storage_path:
-        try:
-            from app.infrastructure.minio.client import delete_file
-            delete_file(source.storage_path)
-        except Exception:
-            pass
+    # Delete raw and processed objects from the provider recorded for this source.
+    try:
+        from app.infrastructure.storage.paths import (
+            processed_document_key,
+            processed_metadata_key,
+        )
+        from app.infrastructure.storage.service import get_storage_service
+
+        storage = get_storage_service(provider=source.storage_type)
+        if source.storage_path:
+            await run_in_threadpool(storage.delete_raw_document, source.storage_path)
+        await run_in_threadpool(
+            storage.delete_raw_document, processed_document_key(str(source_id))
+        )
+        await run_in_threadpool(
+            storage.delete_raw_document, processed_metadata_key(str(source_id))
+        )
+    except Exception as storage_exc:
+        logger.exception("Could not delete stored objects for source %s", source_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not delete source objects from configured storage",
+        ) from storage_exc
 
     await record_audit_event(
         db=db,
@@ -539,7 +585,7 @@ async def stream_source_status(
                 "error_message": source.error_message,
             })
             yield f"event: status\ndata: {data}\n\n"
-            yield f"event: done\ndata: {{}}\n\n"
+            yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
             single_event(),
@@ -569,10 +615,10 @@ async def stream_source_status(
                 yield f"event: status\ndata: {data}\n\n"
 
                 if event.get("status") in ("READY", "FAILED"):
-                    yield f"event: done\ndata: {{}}\n\n"
+                    yield "event: done\ndata: {}\n\n"
                     break
         except Exception:
-            yield f"event: done\ndata: {{}}\n\n"
+            yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(
         event_stream(),

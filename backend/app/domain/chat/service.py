@@ -21,9 +21,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.audit import record_audit_event
-from app.domain.chat.prompt import build_context, build_prompt, format_history
+from app.core.config import get_settings
 from app.infrastructure.db.models import ChatSession, Message, Notebook, Source, UserSettings
 
 if TYPE_CHECKING:
@@ -73,9 +72,10 @@ async def stream_answer(
 
     # Deferred imports to avoid loading heavy ML libs at module level
     import asyncio
-    from app.domain.retrieval.retriever import retrieve, UserSecurityContext
-    from app.infrastructure.llm import get_llm_provider
+
     from app.domain.chat.orchestrator import GroundedPromptBuilder
+    from app.domain.retrieval.retriever import retrieve
+    from app.infrastructure.llm import get_llm_provider
 
     try:
         # ── 0. Input guardrails (prompt-injection defence) ──────────────

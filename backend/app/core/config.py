@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     @classmethod
     def parse_database_url(cls, v: str) -> str:
         """Handle empty string, normalize driver, escape passwords, and adapt IPv6-only hosts."""
-        import re
         import urllib.parse
 
         if not v or not isinstance(v, str) or not v.strip():
@@ -109,13 +108,19 @@ class Settings(BaseSettings):
     max_files_per_request: int = 10
 
     # ── MinIO / Storage (Object Storage / Data Lake) ────
-    storage_provider: str = "minio"  # "minio", "s3", or "local"
+    storage_provider: str = "minio"  # "gcs", "minio", "s3", or "local"
     local_storage_path: str = "./data/lake"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "opennotebook"
     minio_secure: bool = False
+
+    # ── Google Cloud Storage ─────────────────────
+    # Credentials are resolved through Application Default Credentials (ADC).
+    gcs_bucket: str = ""
+    gcs_project_id: str = ""
+    gcs_timeout_seconds: int = 60
 
     # ── Qdrant (Vector Store) ────────────────────
     qdrant_url: str = "http://localhost:6333"
@@ -165,7 +170,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> Settings:
-        """Refuse to start in production with default/placeholder secrets."""
+        """Validate provider configuration and production secrets."""
+        if self.storage_provider.lower() == "gcs" and not self.gcs_bucket.strip():
+            raise ValueError("GCS_BUCKET must be configured when STORAGE_PROVIDER=gcs")
+
         if self.app_env.lower() in ("production", "prod"):
             weak = {
                 "",
@@ -175,8 +183,8 @@ class Settings(BaseSettings):
             }
             if self.jwt_secret_key in weak or len(self.jwt_secret_key) < 32:
                 raise ValueError("JWT_SECRET_KEY must be a strong, unique value in production")
-            if self.minio_secret_key in weak:
-                raise ValueError("MINIO_SECRET_KEY must be set in production")
+            if self.storage_provider.lower() in ("minio", "s3") and self.minio_secret_key in weak:
+                raise ValueError("MINIO_SECRET_KEY must be set when using MinIO/S3 in production")
         return self
 
 

@@ -1,0 +1,23 @@
+# Optional Docker Compose override for local GCS development.
+# Usage:
+#   export GOOGLE_APPLICATION_CREDENTIALS_HOST="$HOME/.config/gcloud/application_default_credentials.json"
+#   docker compose -f docker-compose.yml -f docker-compose.gcs.yml up -d --build
+
+services:
+  api:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/google/adc.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST:?Set GOOGLE_APPLICATION_CREDENTIALS_HOST}
+        target: /var/run/google/adc.json
+        read_only: true
+
+  worker:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/google/adc.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST:?Set GOOGLE_APPLICATION_CREDENTIALS_HOST}
+        target: /var/run/google/adc.json
+        read_only: true

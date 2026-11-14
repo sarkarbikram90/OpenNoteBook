@@ -156,7 +156,7 @@ async def refresh(body: TokenRefreshRequest, db: DbSession) -> TokenResponse:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
-        )
+        ) from None
 
     if payload.type != "refresh":
         raise HTTPException(

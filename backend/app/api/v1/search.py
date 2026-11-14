@@ -36,7 +36,7 @@ router = APIRouter(tags=["search"])
 )
 @limiter.limit("60/minute")
 async def search_notebook(
-    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
+    request: Request,
     notebook_id: uuid.UUID,
     body: SearchRequest,
     user: CurrentUser,

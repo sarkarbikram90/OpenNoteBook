@@ -21,13 +21,11 @@ from sqlalchemy import (
     Integer,
     Numeric,
     Text,
-    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
-
 
 # ── Users ────────────────────────────────────────────────────────────────────
 
@@ -187,7 +185,7 @@ class Source(Base):
     __tablename__ = "sources"
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('pdf', 'docx', 'txt', 'md', 'url', 'youtube')",
+            "source_type IN ('pdf', 'docx', 'txt', 'md', 'url', 'youtube', 'image')",
             name="ck_sources_source_type",
         ),
         Index("ix_sources_notebook_id", "notebook_id"),

@@ -84,3 +84,28 @@ def test_image_only_pdf_yields_no_text():
 def test_txt_and_markdown_extraction():
     assert "plain text body" in extract("txt", b"plain text body").text
     assert "md heading" in extract("md", b"# md heading\nbody").text
+
+
+
+def test_image_extractor_uses_ocr_and_preserves_image_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Raster images are converted to a one-page OCR extraction result."""
+    import pytesseract
+    from PIL import Image
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (120, 80), color="white").save(image_buffer, format="PNG")
+    monkeypatch.setattr(
+        pytesseract,
+        "image_to_string",
+        lambda image, lang="eng": "Incident runbook escalation steps",
+    )
+
+    result = extract("image", image_buffer.getvalue())
+
+    assert "Incident runbook escalation steps" in result.text
+    assert result.metadata["format"] == "png"
+    assert result.metadata["page_count"] == 1
+    assert result.metadata["ocr_used"] is True
+    assert result.pages[0].section == "Image OCR"

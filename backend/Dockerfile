@@ -14,6 +14,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         libpq-dev \
+        tesseract-ocr \
         curl && \
     rm -rf /var/lib/apt/lists/*
 

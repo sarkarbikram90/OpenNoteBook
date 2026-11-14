@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +24,7 @@ def handle_dlq(source_id: str, error: str, traceback_str: str | None = None) -> 
         The UUID of the created failed_job record.
     """
     from sqlalchemy import insert
+
     from app.infrastructure.db.models import FailedJob
     from app.worker.tasks.process_source import _get_sync_session
 
@@ -65,6 +65,7 @@ def retry_failed_job(job_id: str) -> str:
         ValueError: If the job is not found or was already retried.
     """
     from sqlalchemy import select, update
+
     from app.infrastructure.db.models import FailedJob
     from app.worker.tasks.process_source import _get_sync_session, process_source
 

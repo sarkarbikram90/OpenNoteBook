@@ -72,10 +72,10 @@ class PIIScrubber:
     def _mask_value(self, val: str, entity_type: str, strategy: MaskingStrategy) -> str:
         if strategy == MaskingStrategy.REDACT:
             return f"[REDACTED_{entity_type}]"
-        elif strategy == MaskingStrategy.HASH:
+        if strategy == MaskingStrategy.HASH:
             digest = hashlib.sha256(val.encode("utf-8")).hexdigest()[:12]
             return f"[HASH_{entity_type}_{digest}]"
-        elif strategy == MaskingStrategy.MASK:
+        if strategy == MaskingStrategy.MASK:
             digits_only = re.sub(r"\D", "", val)
             if entity_type == "CREDIT_CARD" and len(digits_only) >= 4:
                 return f"****-****-****-{digits_only[-4:]}"

@@ -24,7 +24,7 @@ interface ChatWorkspaceProps {
 }
 
 export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string[]>([]);
   const [showSourceFilter, setShowSourceFilter] = useState(false);
@@ -34,6 +34,8 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
 
   // Queries
   const { data: sessions = [], isLoading: sessionsLoading } = useSessions(notebookId);
+  const activeSessionId =
+    selectedSessionId ?? (!isCreatingNew && sessions.length > 0 ? sessions[0].id : null);
   const { data: messages = [], isLoading: messagesLoading } = useMessages(activeSessionId);
   const { data: sources = [] } = useSources(notebookId);
   const readySources = sources.filter((s) => s.status === 'READY');
@@ -45,13 +47,6 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
   const deleteMutation = useDeleteSession(notebookId);
   const exportMutation = useExportSession();
   const feedbackMutation = useSubmitFeedback();
-
-  // Auto-select first session only on initial load if not explicitly starting a new chat
-  useEffect(() => {
-    if (!activeSessionId && sessions.length > 0 && !isCreatingNew) {
-      setActiveSessionId(sessions[0].id);
-    }
-  }, [sessions, activeSessionId, isCreatingNew]);
 
   // Auto-scroll on new content
   useEffect(() => {
@@ -89,7 +84,7 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
 
   const handleNewSession = useCallback(() => {
     setIsCreatingNew(true);
-    setActiveSessionId(null);
+    setSelectedSessionId(null);
     stream.reset();
     setTimeout(() => {
       chatInputRef.current?.focus();
@@ -104,14 +99,14 @@ export function ChatWorkspace({ notebookId }: ChatWorkspaceProps) {
         activeSessionId={activeSessionId}
         onSelectSession={(id) => {
           setIsCreatingNew(false);
-          setActiveSessionId(id);
+          setSelectedSessionId(id);
           stream.reset();
         }}
         onNewSession={handleNewSession}
         onDeleteSession={(id) => {
           deleteMutation.mutate(id);
           if (activeSessionId === id) {
-            setActiveSessionId(null);
+            setSelectedSessionId(null);
           }
         }}
         onExportSession={(id) => {

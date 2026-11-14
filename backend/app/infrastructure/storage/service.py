@@ -1,18 +1,18 @@
 """OpenNotebook — Central Data Lake and Object Storage service.
 
 Provides a unified storage interface supporting:
-1. S3 / MinIO Object Storage
-2. Local filesystem fallback for dev/testing
-3. SHA-256 cryptographic provenance hashing
+1. Google Cloud Storage (GCS)
+2. S3 / MinIO Object Storage
+3. Local filesystem fallback for dev/testing
+4. SHA-256 cryptographic provenance hashing
 """
 
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
@@ -60,10 +60,9 @@ class StorageService:
 
     @property
     def provider(self) -> str:
-        """Return the effective storage provider, auto-routing to local if MinIO/S3 is unreachable."""
-        if self._provider in ("minio", "s3"):
-            if not self._is_minio_available():
-                return "local"
+        """Return the effective provider, falling back locally if MinIO/S3 is unreachable."""
+        if self._provider in ("minio", "s3") and not self._is_minio_available():
+            return "local"
         return self._provider
 
     @provider.setter
@@ -141,12 +140,24 @@ class StorageService:
         # Normalize key
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            # GCS is authoritative when selected: propagate failures rather than
+            # silently writing to ephemeral local disk.
+            from app.infrastructure.storage import gcs as gcs_storage
+
+            return gcs_storage.upload_file(
+                data,
+                clean_object_name,
+                content_type=content_type,
+                metadata=metadata,
+            )
+
         if self.provider in ("minio", "s3"):
             try:
-                from app.infrastructure.minio.client import upload_file, ensure_bucket
+                from app.infrastructure.minio import client as minio_client
 
-                ensure_bucket()
-                return upload_file(data, clean_object_name, content_type=content_type)
+                minio_client.ensure_bucket()
+                return minio_client.upload_file(data, clean_object_name, content_type=content_type)
             except Exception as exc:
                 global _minio_reachable
                 _minio_reachable = False
@@ -180,6 +191,10 @@ class StorageService:
         """
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import download_file
+            return download_file(clean_object_name)
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import download_file
@@ -205,6 +220,11 @@ class StorageService:
         """
         clean_object_name = object_name.lstrip("/")
 
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import delete_file
+            delete_file(clean_object_name)
+            return
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import delete_file
@@ -223,6 +243,10 @@ class StorageService:
     def object_exists(self, object_name: str) -> bool:
         """Check whether an object exists in the lake."""
         clean_object_name = object_name.lstrip("/")
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import object_exists
+            return object_exists(clean_object_name)
+
         if self.provider in ("minio", "s3"):
             try:
                 from app.infrastructure.minio.client import get_minio_client
@@ -230,8 +254,12 @@ class StorageService:
                 client = get_minio_client()
                 client.stat_object(self.settings.minio_bucket, clean_object_name)
                 return True
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "MinIO object existence check failed for %s: %s",
+                    clean_object_name,
+                    exc,
+                )
         target_path = self.local_root / clean_object_name
         return target_path.is_file()
 
@@ -255,7 +283,11 @@ class StorageService:
             logger.info("Deleted local storage file: %s", target_path)
 
 
-@lru_cache(maxsize=1)
-def get_storage_service() -> StorageService:
-    """Return cached singleton instance of StorageService."""
-    return StorageService()
+@lru_cache(maxsize=8)
+def get_storage_service(provider: str | None = None) -> StorageService:
+    """Return a cached storage service, optionally pinned to a source's provider.
+
+    Provider pinning keeps older local/MinIO documents accessible after the
+    default provider is changed for new uploads.
+    """
+    return StorageService(provider=provider)

@@ -1,6 +1,6 @@
 /** OpenNotebook — Chat input with send, keyboard shortcuts, and quick prompts. */
 
-import { useState, useRef, useCallback, type KeyboardEvent } from 'react';
+import { useState, useRef, type KeyboardEvent } from 'react';
 import { clsx } from 'clsx';
 import { Send, Loader2 } from 'lucide-react';
 
@@ -25,7 +25,7 @@ export function ChatInput({
   const fallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeRef = externalRef || fallbackRef;
 
-  const handleSend = useCallback(() => {
+  const handleSend = () => {
     const trimmed = value.trim();
     if (!trimmed || isStreaming || disabled) return;
     onSend(trimmed);
@@ -35,24 +35,21 @@ export function ChatInput({
     if (activeRef.current) {
       activeRef.current.style.height = 'auto';
     }
-  }, [value, isStreaming, disabled, onSend, activeRef]);
+  };
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend],
-  );
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
-  const handleInput = useCallback(() => {
+  const handleInput = () => {
     const el = activeRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [activeRef]);
+  };
 
   return (
     <div className="border-t border-surface-700/40 bg-surface-900/80 backdrop-blur-sm p-4">
@@ -78,7 +75,7 @@ export function ChatInput({
       <div className="flex items-end gap-3">
         <div className="flex-1 relative">
           <textarea
-            ref={activeRef as any}
+            ref={activeRef}
             value={value}
             onChange={(e) => {
               setValue(e.target.value);

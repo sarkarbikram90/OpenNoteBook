@@ -1,6 +1,6 @@
 /** OpenNotebook — Source detail view with metadata, summary, and suggested questions. */
 
-import { FileText, Globe, Youtube, Calendar, Hash, Cpu, HelpCircle } from 'lucide-react';
+import { FileText, Globe, Youtube, Image, Calendar, Hash, Cpu, HelpCircle } from 'lucide-react';
 import { Badge, statusBadgeVariant } from '@/components/ui/Badge';
 import type { Source } from '@/lib/types';
 
@@ -13,6 +13,7 @@ interface SourceDetailProps {
 export function SourceDetail({ source, onClose, onAskQuestion }: SourceDetailProps) {
   const typeIcon = {
     pdf: FileText,
+    image: Image,
     docx: FileText,
     txt: FileText,
     md: FileText,

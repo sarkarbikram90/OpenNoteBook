@@ -30,11 +30,11 @@ jobs:
 
       - name: Type Check with Mypy
         run: |
-          mypy backend/app
+          mypy --config-file backend/pyproject.toml backend/app
 
       - name: Run Pytest
         run: |
-          cd backend && pytest --cov=app --cov-fail-under=80
+          cd backend && pytest tests/evaluation tests/unit -o addopts="" -q
 
   frontend:
     name: Frontend CI

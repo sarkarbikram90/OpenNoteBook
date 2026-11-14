@@ -2,7 +2,7 @@
 
 import { clsx } from 'clsx';
 import {
-  FileText, Globe, Youtube, FileType, MoreVertical,
+  FileText, Globe, Youtube, FileType, Image, MoreVertical,
   Trash2, RefreshCw, Sparkles, ChevronRight,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,6 +20,7 @@ interface SourceCardProps {
 
 const typeIcons: Record<string, typeof FileText> = {
   pdf: FileText,
+  image: Image,
   docx: FileType,
   txt: FileText,
   md: FileText,
@@ -29,6 +30,7 @@ const typeIcons: Record<string, typeof FileText> = {
 
 const typeColors: Record<string, string> = {
   pdf: 'text-red-400',
+  image: 'text-violet-400',
   docx: 'text-blue-400',
   txt: 'text-surface-400',
   md: 'text-emerald-400',
