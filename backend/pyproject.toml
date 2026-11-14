@@ -261,6 +261,7 @@ filterwarnings = [
     "ignore::DeprecationWarning:celery.*",
     "ignore::sqlalchemy.exc.SADeprecationWarning",
     "ignore::DeprecationWarning",
+    "ignore::ImportWarning",
 ]
 
 [tool.coverage.run]
