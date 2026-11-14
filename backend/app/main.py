@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
@@ -28,6 +30,7 @@ from app.api.v1.search import router as search_router
 from app.api.v1.settings import router as settings_router
 from app.api.v1.sources import router as sources_router
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.core.logging import init_tracing, setup_logging
 from app.infrastructure.db.session import async_engine
 
@@ -74,12 +77,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Ensure database schema exists and seed demo user (best-effort, non-blocking)
     try:
-        from app.infrastructure.db.base import Base
-        import app.infrastructure.db.models  # noqa: F401
-        from app.infrastructure.db.session import AsyncSessionLocal
-        from app.infrastructure.db.models import User, UserSettings
-        from app.core.auth import hash_password
         from sqlalchemy import select
+
+        import app.infrastructure.db.models  # noqa: F401
+        from app.core.auth import hash_password
+        from app.infrastructure.db.base import Base
+        from app.infrastructure.db.models import User, UserSettings
+        from app.infrastructure.db.session import AsyncSessionLocal
 
         async def _init_db() -> None:
             async with async_engine.begin() as conn:
@@ -120,10 +124,6 @@ app = FastAPI(
 )
 
 # Rate limiting
-from slowapi.errors import RateLimitExceeded
-from slowapi import _rate_limit_exceeded_handler
-from app.core.limiter import limiter
-
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -132,6 +132,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 async def global_exception_handler(request: Request, exc: Exception) -> Response:
     """Log full trace and return structured error JSON for unhandled server exceptions."""
     import traceback
+
     from fastapi.responses import JSONResponse
     logger.error(
         "Unhandled exception in %s %s: %s\n%s",

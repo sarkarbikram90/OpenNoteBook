@@ -9,8 +9,8 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.session import AsyncSessionLocal, async_engine, get_db
 
 __all__ = [
-    "Base",
     "AsyncSessionLocal",
+    "Base",
     "async_engine",
     "get_db",
 ]

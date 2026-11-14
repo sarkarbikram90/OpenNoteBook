@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import socket
+import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -19,9 +21,6 @@ import redis
 import redis.asyncio as aioredis
 
 from app.core.config import get_settings
-
-import socket
-import time
 
 logger = logging.getLogger(__name__)
 

@@ -41,6 +41,7 @@ export function Badge({ variant = 'default', children, className }: BadgeProps) 
 }
 
 /** Map source status to badge variant. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function statusBadgeVariant(
   status: string,
 ): BadgeProps['variant'] {

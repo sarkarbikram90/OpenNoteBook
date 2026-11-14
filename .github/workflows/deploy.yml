@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || secrets.GCP_PROJECT || secrets.PROJECT_ID || 'founders-club-507318' }}
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID || secrets.GCP_PROJECT || secrets.PROJECT_ID || 'gen-lang-client-0295924868' }}
   GAR_LOCATION: ${{ secrets.GCP_GAR_LOCATION || secrets.GAR_LOCATION || 'us-central1-docker.pkg.dev' }}
   REGION: ${{ secrets.GCP_REGION || 'asia-southeast1' }}
   REPOSITORY: opennotebook
+  GCS_BUCKET: ${{ secrets.GCS_BUCKET || 'opennotebook-sources-gen-lang-client-0295924868' }}
   WIF_PROVIDER: ${{ secrets.WIF_PROVIDER || secrets.WORKLOAD_IDENTITY_PROVIDER }}
-  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || 'opennotebook-deployer@founders-club-507318.iam.gserviceaccount.com' }}
+  WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT || secrets.GCP_SA_EMAIL || 'opennotebook-deployer@gen-lang-client-0295924868.iam.gserviceaccount.com' }}
   GCP_SA_KEY: ${{ secrets.GCP_SA_KEY || secrets.GCP_CREDENTIALS || secrets.GOOGLE_CREDENTIALS || secrets.GCP_SERVICE_ACCOUNT_KEY }}
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
@@ -152,6 +153,10 @@ jobs:
             LOG_LEVEL=INFO
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
             MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
+            STORAGE_PROVIDER=${{ secrets.STORAGE_PROVIDER || 'gcs' }}
+            GCS_BUCKET=${{ env.GCS_BUCKET }}
+            GCS_PROJECT_ID=${{ env.PROJECT_ID }}
+            GCS_TIMEOUT_SECONDS=60
             DATABASE_URL=${{ secrets.DATABASE_URL || 'postgresql://postgres.ixjaquviwwtfrdenybxc:getcracked@1990@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres' }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             LLM_PROVIDER=${{ secrets.LLM_PROVIDER || (secrets.GEMINI_API_KEY && 'gemini') || 'ollama' }}

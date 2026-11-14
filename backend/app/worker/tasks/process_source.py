@@ -16,14 +16,15 @@ from __future__ import annotations
 
 import logging
 import traceback
-from typing import Any
 import uuid
+from datetime import UTC
+from typing import Any
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.worker.celery_app import celery_app
 from app.core.config import get_settings
+from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +116,9 @@ def _update_source_status(
 
 def _get_source_record(source_id: str) -> dict:
     """Fetch the source record from the database including workspace and governance settings."""
-    from app.infrastructure.db.models import Source, Notebook
     from sqlalchemy import select
+
+    from app.infrastructure.db.models import Notebook, Source
 
     session = _get_sync_session()
     try:
@@ -164,7 +166,7 @@ def _persist_processed_artifacts(
 ) -> None:
     """Write the redacted text and processing metadata to the lake under processed/."""
     import json
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.infrastructure.storage.paths import (
         processed_document_key,
@@ -184,7 +186,7 @@ def _persist_processed_artifacts(
         "chunk_count": chunk_count,
         "pii_entities": pii_entities,
         "sensitivity_level": sensitivity_level,
-        "processed_at": datetime.now(timezone.utc).isoformat(),
+        "processed_at": datetime.now(UTC).isoformat(),
     }
     storage.upload_artifact(
         json.dumps(metadata).encode("utf-8"),
@@ -206,13 +208,13 @@ def execute_process_source(source_id: str) -> dict:
     settings = get_settings()
 
     try:
-        from app.domain.sources.extractor import extract
+        from app.domain.governance.pii_engine import get_pii_scrubber
+        from app.domain.sources.bm25_index import build_bm25_index
         from app.domain.sources.chunker import chunk_document
         from app.domain.sources.embedder import embed_texts
-        from app.domain.sources.bm25_index import build_bm25_index
+        from app.domain.sources.extractor import extract
+        from app.infrastructure.qdrant.client import ChunkPayload, delete_by_source, upsert_chunks
         from app.infrastructure.storage.service import get_storage_service
-        from app.domain.governance.pii_engine import get_pii_scrubber
-        from app.infrastructure.qdrant.client import upsert_chunks, ChunkPayload, delete_by_source
 
         # Load source record
         source = _get_source_record(source_id)
@@ -441,7 +443,7 @@ def process_source(self, source_id: str) -> dict:
         has_celery_request = hasattr(self, "request") and hasattr(self, "max_retries")
         if has_celery_request and self.request.retries < self.max_retries:
             _update_source_status(source_id, "PENDING", error_message=f"Retry {self.request.retries + 1}: {exc}")
-            raise self.retry(exc=exc)
+            raise self.retry(exc=exc) from exc
         _update_source_status(source_id, "FAILED", error_message=str(exc))
         raise
 

@@ -115,4 +115,8 @@ async def authorize_notebook_access(
     if not roles:
         return None
 
-    return notebook, build_security_context(str(user_id), roles, notebook.workspace_id)
+    return notebook, build_security_context(
+        str(user_id),
+        roles,
+        str(notebook.workspace_id) if notebook.workspace_id else None,
+    )

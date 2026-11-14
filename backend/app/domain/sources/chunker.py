@@ -17,9 +17,8 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
 
-from app.domain.sources.extractor import ExtractionResult, PageContent
+from app.domain.sources.extractor import ExtractionResult
 from app.domain.sources.tokenization import count_tokens
 
 logger = logging.getLogger(__name__)

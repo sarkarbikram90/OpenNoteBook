@@ -143,9 +143,9 @@ class StorageService:
         if self.provider == "gcs":
             # GCS is authoritative when selected: propagate failures rather than
             # silently writing to ephemeral local disk.
-            from app.infrastructure.storage.gcs import upload_file
+            from app.infrastructure.storage import gcs as gcs_storage
 
-            return upload_file(
+            return gcs_storage.upload_file(
                 data,
                 clean_object_name,
                 content_type=content_type,
@@ -154,10 +154,10 @@ class StorageService:
 
         if self.provider in ("minio", "s3"):
             try:
-                from app.infrastructure.minio.client import ensure_bucket, upload_file
+                from app.infrastructure.minio import client as minio_client
 
-                ensure_bucket()
-                return upload_file(data, clean_object_name, content_type=content_type)
+                minio_client.ensure_bucket()
+                return minio_client.upload_file(data, clean_object_name, content_type=content_type)
             except Exception as exc:
                 global _minio_reachable
                 _minio_reachable = False

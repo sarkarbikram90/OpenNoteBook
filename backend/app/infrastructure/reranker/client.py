@@ -22,7 +22,7 @@ _reranker: Any = None
 
 def _get_reranker() -> Any:
     """Load the cross-encoder reranker model on first use."""
-    global _reranker  # noqa: PLW0603
+    global _reranker
     if _reranker is None:
         from sentence_transformers import CrossEncoder
 

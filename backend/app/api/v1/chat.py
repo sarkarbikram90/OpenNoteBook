@@ -13,7 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
-import io
+import logging
 import uuid
 from datetime import datetime
 
@@ -38,6 +38,7 @@ from app.domain.chat.service import stream_answer
 from app.domain.governance.access import authorize_notebook_access
 from app.infrastructure.db.models import ChatSession, Message, MessageFeedback, Notebook
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
@@ -54,7 +55,7 @@ router = APIRouter(tags=["chat"])
 )
 @limiter.limit("30/minute")
 async def chat(
-    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
+    request: Request,
     notebook_id: uuid.UUID,
     body: ChatRequest,
     user: CurrentUser,
@@ -263,8 +264,7 @@ async def export_session(
 
     if body.format == "markdown":
         return _export_markdown(session, messages)
-    else:
-        return _export_pdf(session, messages)
+    return _export_pdf(session, messages)
 
 
 # ── Feedback ────────────────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ async def export_session(
 )
 @limiter.limit("60/minute")
 async def submit_feedback(
-    request: Request,  # noqa: ARG001 - required by slowapi rate limiter
+    request: Request,
     body: FeedbackRequest,
     user: CurrentUser,
     db: DbSession,

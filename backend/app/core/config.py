@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     @classmethod
     def parse_database_url(cls, v: str) -> str:
         """Handle empty string, normalize driver, escape passwords, and adapt IPv6-only hosts."""
-        import re
         import urllib.parse
 
         if not v or not isinstance(v, str) or not v.strip():

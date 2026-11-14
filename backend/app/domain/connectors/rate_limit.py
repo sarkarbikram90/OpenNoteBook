@@ -47,5 +47,5 @@ class RateLimiter:
         self.acquire()
         return self
 
-    def __exit__(self, *exc: object) -> bool:
-        return False
+    def __exit__(self, *exc: object) -> None:
+        return None

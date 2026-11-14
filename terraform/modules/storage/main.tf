@@ -2,11 +2,37 @@
 resource "google_storage_bucket" "uploads" {
   name          = var.bucket_name
   location      = var.location
+  storage_class = "STANDARD"
   # Protect source documents from accidental Terraform bucket deletion.
   force_destroy = false
 
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
+
+  encryption {
+    customer_supplied_encryption_enforcement_config {
+      restriction_mode = "FullyRestricted"
+    }
+    customer_managed_encryption_enforcement_config {
+      restriction_mode = "NotRestricted"
+    }
+    google_managed_encryption_enforcement_config {
+      restriction_mode = "NotRestricted"
+    }
+  }
+
+  soft_delete_policy {
+    retention_duration_seconds = 604800 # 7 days
+  }
+
+  lifecycle_rule {
+    action {
+      type = "AbortIncompleteMultipartUpload"
+    }
+    condition {
+      age = 7
+    }
+  }
 
   cors {
     origin          = ["*"]

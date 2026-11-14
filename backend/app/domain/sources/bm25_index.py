@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from rank_bm25 import BM25Okapi
 
-from app.core.config import get_settings
 from app.infrastructure.qdrant.client import get_all_chunks_for_notebook
 from app.infrastructure.redis.client import get_sync_redis
 

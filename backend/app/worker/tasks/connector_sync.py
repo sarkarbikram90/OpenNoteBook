@@ -104,7 +104,7 @@ def sync_connector(self, connector_id: str) -> dict[str, Any]:
             .scalars()
             .all()
         )
-        plan = plan_ingest(documents, existing_checksums)
+        plan = plan_ingest(documents, [c for c in existing_checksums if c is not None])
 
         storage = get_storage_service()
         source_ids: list[str] = []
@@ -146,8 +146,8 @@ def sync_connector(self, connector_id: str) -> dict[str, Any]:
         )
         session.commit()
 
-        for source_id in source_ids:
-            process_source.delay(source_id)
+        for queued_source_id in source_ids:
+            process_source.delay(queued_source_id)
 
         logger.info(
             "sync_connector %s: found=%d ingested=%d skipped=%d",

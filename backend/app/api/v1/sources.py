@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Annotated
+from datetime import UTC
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.schemas.sources import (
@@ -374,13 +374,13 @@ async def list_sources(
     sources = list(result.scalars().all())
 
     # Auto-heal: Check if any sources are stuck in PENDING or EXTRACTING for > 30 seconds
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
+    from datetime import datetime
+    now = datetime.now(UTC)
     for s in sources:
         if s.status in ("PENDING", "EXTRACTING", "CHUNKING", "EMBEDDING"):
             created = getattr(s, "created_at", None)
             if created:
-                created_dt = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
+                created_dt = created.replace(tzinfo=UTC) if created.tzinfo is None else created
                 if (now - created_dt).total_seconds() > 30:
                     logger.info("Found stuck source %s in status %s; triggering auto-heal reprocess", s.id, s.status)
                     _dispatch_source_task(s.id, background_tasks)
@@ -585,7 +585,7 @@ async def stream_source_status(
                 "error_message": source.error_message,
             })
             yield f"event: status\ndata: {data}\n\n"
-            yield f"event: done\ndata: {{}}\n\n"
+            yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(
             single_event(),
@@ -615,10 +615,10 @@ async def stream_source_status(
                 yield f"event: status\ndata: {data}\n\n"
 
                 if event.get("status") in ("READY", "FAILED"):
-                    yield f"event: done\ndata: {{}}\n\n"
+                    yield "event: done\ndata: {}\n\n"
                     break
         except Exception:
-            yield f"event: done\ndata: {{}}\n\n"
+            yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(
         event_stream(),

@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import delete, func, select
 
 from app.api.v1.schemas.notebooks import (
     NotebookCreate,
@@ -244,7 +244,7 @@ async def delete_notebook(
         pass
 
     try:
-        from app.infrastructure.redis.client import is_redis_available, get_sync_redis
+        from app.infrastructure.redis.client import get_sync_redis, is_redis_available
         if is_redis_available():
             redis_client = get_sync_redis()
             redis_client.delete(f"bm25:{notebook_id}")

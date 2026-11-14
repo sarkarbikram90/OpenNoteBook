@@ -8,7 +8,6 @@ module-level singleton.
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any

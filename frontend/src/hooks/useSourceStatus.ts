@@ -43,7 +43,9 @@ export function useSourceStatus(
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
-    setState((prev) => ({ ...prev, isConnected: true }));
+    es.onopen = () => {
+      setState((prev) => ({ ...prev, isConnected: true }));
+    };
 
     es.addEventListener('status', (event: MessageEvent) => {
       try {

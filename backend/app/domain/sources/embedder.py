@@ -22,7 +22,7 @@ _model: Any = None
 
 def _get_model() -> Any:
     """Load the sentence-transformer model on first use."""
-    global _model  # noqa: PLW0603
+    global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
 

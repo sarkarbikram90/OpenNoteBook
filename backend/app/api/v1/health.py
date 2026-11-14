@@ -27,7 +27,9 @@ async def health() -> dict[str, str]:
 async def diag() -> dict[str, object]:
     """Diagnostic endpoint to inspect active database host, port, and connectivity."""
     import urllib.parse
+
     from sqlalchemy import text
+
     from app.core.config import get_settings
     from app.infrastructure.db.session import async_engine
 

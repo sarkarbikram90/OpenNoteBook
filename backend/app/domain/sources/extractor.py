@@ -351,13 +351,6 @@ def _extract_url(content: bytes | str, **kwargs: Any) -> ExtractionResult:
     if text is None:
         raise ValueError(f"Failed to extract text from URL: {url}")
 
-    # Try to get metadata
-    metadata_result = trafilatura.extract(
-        downloaded,
-        output_format="json",
-        include_comments=False,
-    )
-
     metadata: dict[str, Any] = {
         "format": "url",
         "source_url": url,
@@ -502,7 +495,7 @@ def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
     import warnings
 
     import pytesseract
-    from PIL import Image, ImageOps
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
     if isinstance(content, str):
         content = content.encode("utf-8")
@@ -516,7 +509,7 @@ def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
                 image = ImageOps.exif_transpose(source_image).convert("RGB")
                 image.load()
     except (
-        Image.UnidentifiedImageError,
+        UnidentifiedImageError,
         Image.DecompressionBombError,
         Image.DecompressionBombWarning,
         OSError,

@@ -113,7 +113,7 @@ def download_file(object_name: str) -> bytes:
         raise
 
     _record_operation("download", started_at, "success", len(data))
-    return data
+    return bytes(data)
 
 
 def delete_file(object_name: str) -> None:

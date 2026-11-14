@@ -12,20 +12,26 @@ import os
 import random
 import sys
 import uuid
-from datetime import datetime, timezone
 
-from bcrypt import hashpw, gensalt
+from bcrypt import gensalt, hashpw
 from fpdf import FPDF
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
+from app.domain.sources.bm25_index import build_bm25_index
 from app.infrastructure.db.models import (
-    Base, User, Notebook, Source, SourceSummary, ChatSession, Message, Settings
+    Base,
+    ChatSession,
+    Message,
+    Notebook,
+    Settings,
+    Source,
+    SourceSummary,
+    User,
 )
 from app.infrastructure.minio.client import ensure_bucket, get_minio_client
 from app.infrastructure.qdrant.client import get_qdrant_client
-from app.domain.sources.bm25_index import build_bm25_index
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -87,14 +93,14 @@ def generate_pdf(filename: str, title: str, content: str) -> str:
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT", align="C")
     pdf.ln(10)
-    
+
     pdf.set_font("Helvetica", size=12)
     # Split text by lines to print nicely
     for line in content.split("\n"):
         if line.strip():
             pdf.multi_cell(0, 8, line.strip())
             pdf.ln(2)
-            
+
     # Save file temporarily
     temp_dir = "/tmp" if os.name != "nt" else "C:\\Temp"
     os.makedirs(temp_dir, exist_ok=True)
@@ -137,14 +143,14 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
 def seed_db() -> None:
     logger.info("Initializing seeder...")
     session = get_db_session()
-    
+
     try:
         # 1. Create or retrieve Default User
         email = "demo@opennotebook.local"
         user = session.execute(select(User).where(User.email == email)).scalar_one_or_none()
-        
+
         if not user:
-            hashed_pwd = hashpw("password123".encode("utf-8"), gensalt(12)).decode("utf-8")
+            hashed_pwd = hashpw(b"password123", gensalt(12)).decode("utf-8")
             user = User(
                 id=uuid.uuid4(),
                 email=email,
@@ -154,7 +160,7 @@ def seed_db() -> None:
             session.add(user)
             session.commit()
             logger.info("Created default demo user: %s", email)
-            
+
             # Create user settings
             user_settings = Settings(
                 id=uuid.uuid4(),
@@ -196,14 +202,14 @@ def seed_db() -> None:
         ]
 
         chunks_to_upsert = []
-        
+
         for filename, title, raw_text in pdf_definitions:
             local_path = generate_pdf(filename, title, raw_text)
-            
+
             # Upload to MinIO
             bucket_name = settings.minio_bucket
             object_name = f"sources/{notebook.id}/{filename}"
-            
+
             minio_client.fput_object(
                 bucket_name=bucket_name,
                 object_name=object_name,
@@ -211,7 +217,7 @@ def seed_db() -> None:
                 content_type="application/pdf"
             )
             logger.info("Uploaded %s to MinIO", filename)
-            
+
             # Create Source database record
             source = Source(
                 id=uuid.uuid4(),
@@ -227,7 +233,7 @@ def seed_db() -> None:
             )
             session.add(source)
             session.commit()
-            
+
             # Generate pre-composed source summary
             summary = SourceSummary(
                 id=uuid.uuid4(),
@@ -252,11 +258,11 @@ def seed_db() -> None:
             session.add(summary)
             session.commit()
             logger.info("Saved summary for %s", filename)
-            
+
             # Index chunk into Qdrant vector store
             text_snippet = raw_text.strip()
             vector = get_embeddings([text_snippet])[0]
-            
+
             chunk_id = str(uuid.uuid4())
             chunks_to_upsert.append({
                 "id": chunk_id,
@@ -273,7 +279,7 @@ def seed_db() -> None:
                     "embedding_model": settings.embedding_model,
                 }
             })
-            
+
             # Clean up local file
             if os.path.exists(local_path):
                 os.remove(local_path)
@@ -288,7 +294,7 @@ def seed_db() -> None:
             )
             for c in chunks_to_upsert
         ]
-        
+
         qdrant_client.upsert(
             collection_name=settings.qdrant_collection,
             points=points

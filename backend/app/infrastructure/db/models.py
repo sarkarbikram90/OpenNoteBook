@@ -21,13 +21,11 @@ from sqlalchemy import (
     Integer,
     Numeric,
     Text,
-    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
-
 
 # ── Users ────────────────────────────────────────────────────────────────────
 

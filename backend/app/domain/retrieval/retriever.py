@@ -224,7 +224,8 @@ def _dense_search(
     security_context: UserSecurityContext | None = None,
 ) -> list[dict[str, Any]]:
     """Stage 1a: Dense vector search via Qdrant cosine similarity with security trimming."""
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
     from app.domain.sources.embedder import embed_texts
     from app.infrastructure.qdrant.client import get_qdrant_client
 
