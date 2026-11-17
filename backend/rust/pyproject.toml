@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "opennotebook-core"
+version = "0.1.0"
+description = "Rust PyO3 extension module for OpenNotebook CPU-bound RAG data plane"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+[tool.maturin]
+features = ["python"]
+module-name = "opennotebook_core"

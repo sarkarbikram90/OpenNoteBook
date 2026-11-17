@@ -91,6 +91,52 @@ def chunk_document(
     Returns:
         List of Chunk objects ready for embedding.
     """
+    acl_roles = list(allowed_roles or [])
+    acl_users = list(allowed_users or [])
+
+    from app.domain.sources.tokenization import encoding_name
+    from app.infrastructure.rust_accel import rust_chunk_pages
+
+    if encoding_name() == "word-heuristic":
+        page_tuples: list[tuple[int | None, str, str | None]] = (
+            [(p.page_number, p.text, p.section) for p in extraction.pages]
+            if extraction.pages
+            else [(None, extraction.text, None)]
+        )
+        rust_dicts = rust_chunk_pages(
+            source_id=source_id,
+            notebook_id=notebook_id,
+            embedding_model=embedding_model,
+            pages=page_tuples,
+            target_tokens=TARGET_TOKENS,
+            overlap_tokens=OVERLAP_TOKENS,
+            min_tokens=MIN_TOKENS,
+        )
+        if rust_dicts is not None:
+            rust_chunks = [
+                Chunk(
+                    chunk_id=str(d["chunk_id"]),
+                    source_id=str(d["source_id"]),
+                    notebook_id=str(d["notebook_id"]),
+                    text=str(d["text"]),
+                    token_count=int(d["token_count"]),
+                    page=int(d["page"]) if d.get("page") is not None else None,
+                    section=str(d["section"]) if d.get("section") is not None else None,
+                    start_char=int(d["start_char"]),
+                    end_char=int(d["end_char"]),
+                    embedding_model=str(d["embedding_model"]),
+                    allowed_roles=acl_roles,
+                    allowed_users=acl_users,
+                )
+                for d in rust_dicts
+            ]
+            logger.info(
+                "Chunked document into %d chunks via Rust opennotebook_core (source=%s)",
+                len(rust_chunks),
+                source_id,
+            )
+            return rust_chunks
+
     chunks: list[Chunk] = []
 
     if extraction.pages:

@@ -297,32 +297,39 @@ def _bm25_search(
     security_context: UserSecurityContext | None = None,
 ) -> list[dict[str, Any]]:
     """Stage 1b: BM25 keyword search from the Redis-cached index with security trimming."""
-    from app.domain.sources.bm25_index import _tokenise, load_bm25_index
+    from app.domain.sources.bm25_index import (
+        _tokenise,
+        load_bm25_index,
+        score_bm25_query_fast,
+    )
     from app.infrastructure.qdrant.client import get_chunks_by_ids
 
-    try:
-        bm25, chunk_ids = load_bm25_index(notebook_id)
-    except Exception as exc:
-        # Redis unavailable (e.g. serverless without Redis) — degrade to vector-only.
-        logger.warning(
-            "BM25 index unavailable for notebook %s (%s); using vector-only retrieval",
-            notebook_id,
-            exc,
-        )
-        return []
-
-    if bm25 is None or not chunk_ids:
-        logger.debug("No BM25 index found for notebook %s", notebook_id)
-        return []
-
-    tokenised_query = _tokenise(query)
-    scores = bm25.get_scores(tokenised_query)
-
-    # Filter to positive scores and take top candidates
-    scored_pairs = [(cid, score) for cid, score in zip(chunk_ids, scores) if score > 0]
-    scored_pairs.sort(key=lambda pair: pair[1], reverse=True)
     candidate_limit = top_k * 2 if security_context else top_k
-    scored_pairs = scored_pairs[:candidate_limit]
+    scored_pairs = score_bm25_query_fast(notebook_id, query, top_k=candidate_limit)
+
+    if scored_pairs is None:
+        try:
+            bm25, chunk_ids = load_bm25_index(notebook_id)
+        except Exception as exc:
+            # Redis unavailable (e.g. serverless without Redis) — degrade to vector-only.
+            logger.warning(
+                "BM25 index unavailable for notebook %s (%s); using vector-only retrieval",
+                notebook_id,
+                exc,
+            )
+            return []
+
+        if bm25 is None or not chunk_ids:
+            logger.debug("No BM25 index found for notebook %s", notebook_id)
+            return []
+
+        tokenised_query = _tokenise(query)
+        scores = bm25.get_scores(tokenised_query)
+
+        # Filter to positive scores and take top candidates
+        scored_pairs = [(cid, score) for cid, score in zip(chunk_ids, scores) if score > 0]
+        scored_pairs.sort(key=lambda pair: pair[1], reverse=True)
+        scored_pairs = scored_pairs[:candidate_limit]
 
     if not scored_pairs:
         return []

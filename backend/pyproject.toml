@@ -218,6 +218,7 @@ disable_error_code = ["import-untyped", "attr-defined", "index"]
 module = [
     "celery.*",
     "google.*",
+    "opennotebook_core.*",
     "PIL.*",
     "pytesseract.*",
     "minio.*",

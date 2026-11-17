@@ -37,6 +37,8 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# ── Docker ───────────────────────────────────
+# ── Docker & Rust ────────────────────────────
 *.log
 docker-compose.override.yml
+target/
+.venv/

@@ -1,6 +1,17 @@
 # ─────────────────────────────────────────────
 # OpenNotebook — Backend Dockerfile
 # ─────────────────────────────────────────────
+FROM rust:1.83-slim AS rust-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip && \
+    pip install --no-cache-dir --break-system-packages maturin && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /rust
+COPY rust/ ./
+RUN maturin build --release --interpreter python3 --out /wheels
+
 FROM python:3.12-slim AS base
 
 # Prevent Python from writing .pyc files and enable unbuffered output
@@ -27,11 +38,13 @@ WORKDIR /app
 
 # Copy dependency manifest first (layer caching)
 COPY pyproject.toml ./
+COPY --from=rust-builder /wheels/*.whl /tmp/wheels/
 
-# Install Python dependencies (CPU-only PyTorch to keep image lightweight)
+# Install Python dependencies + compiled Rust opennotebook_core extension
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir /tmp/wheels/*.whl . && \
+    rm -rf /tmp/wheels
 
 # Copy application source
 COPY --chown=appuser:appuser . .

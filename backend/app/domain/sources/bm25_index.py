@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 _BM25_KEY_PREFIX = "bm25_corpus:"
 # Redis key for the chunk ID mapping
 _BM25_DOCS_KEY_PREFIX = "bm25_docs:"
+# Redis key for the pre-computed Rust BM25 inverted index
+_BM25_RUST_INV_PREFIX = "bm25_rust_inv:"
 
 
 def build_bm25_index(notebook_id: str) -> int:
@@ -51,8 +53,13 @@ def build_bm25_index(notebook_id: str) -> int:
         return 0
 
     # Tokenise all chunk texts
-    tokenised_corpus = [_tokenise(chunk.get("text", "")) for chunk in chunks]
-    chunk_ids = [chunk.get("chunk_id", "") for chunk in chunks]
+    raw_texts = [str(chunk.get("text", "")) for chunk in chunks]
+    tokenised_corpus = [_tokenise(t) for t in raw_texts]
+    chunk_ids = [str(chunk.get("chunk_id", "")) for chunk in chunks]
+
+    from app.infrastructure.rust_accel import rust_build_bm25_index_json
+
+    rust_inv_json = rust_build_bm25_index_json(chunk_ids, raw_texts)
 
     # Serialise corpus and chunk_ids safely via JSON
     try:
@@ -71,6 +78,11 @@ def build_bm25_index(notebook_id: str) -> int:
             f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}",
             json.dumps(chunk_ids),
         )
+        if rust_inv_json is not None:
+            redis_client.set(
+                f"{_BM25_RUST_INV_PREFIX}{notebook_id}",
+                rust_inv_json,
+            )
     except Exception as exc:
         logger.warning("Failed to store BM25 index in Redis: %s", exc)
 
@@ -127,8 +139,42 @@ def _clear_index(notebook_id: str) -> None:
         redis_client = get_sync_redis()
         redis_client.delete(f"{_BM25_KEY_PREFIX}{notebook_id}")
         redis_client.delete(f"{_BM25_DOCS_KEY_PREFIX}{notebook_id}")
+        redis_client.delete(f"{_BM25_RUST_INV_PREFIX}{notebook_id}")
     except Exception:
         pass
+
+
+def score_bm25_query_fast(
+    notebook_id: str, query: str, top_k: int = 20
+) -> list[tuple[str, float]] | None:
+    """Score ``query`` using the pre-computed Rust BM25 inverted index if cached."""
+    from app.infrastructure.rust_accel import (
+        is_rust_available,
+        rust_score_bm25_index_json,
+    )
+
+    if not is_rust_available():
+        return None
+
+    try:
+        from app.infrastructure.redis.client import is_redis_available
+
+        if not is_redis_available():
+            return None
+
+        redis_client = get_sync_redis()
+        inv_data = redis_client.get(f"{_BM25_RUST_INV_PREFIX}{notebook_id}")
+        if not isinstance(inv_data, (str, bytes, bytearray)):
+            return None
+        inv_json = (
+            inv_data.decode("utf-8")
+            if isinstance(inv_data, (bytes, bytearray))
+            else inv_data
+        )
+        return rust_score_bm25_index_json(inv_json, query, top_k=top_k)
+    except Exception as exc:
+        logger.debug("Rust BM25 fast-path skipped for notebook %s: %s", notebook_id, exc)
+        return None
 
 
 def _tokenise(text: str) -> list[str]:

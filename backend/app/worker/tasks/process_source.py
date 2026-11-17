@@ -256,16 +256,22 @@ def execute_process_source(source_id: str) -> dict:
 
         if settings.pii_redaction_enabled:
             scrubber = get_pii_scrubber()
-            for p in extraction.pages:
-                scrub_res = scrubber.scrub(p.text)
-                p.text = scrub_res.cleaned_text
+            if extraction.pages:
+                for p in extraction.pages:
+                    scrub_res = scrubber.scrub(p.text)
+                    p.text = scrub_res.cleaned_text
+                    total_pii_redacted += scrub_res.total_redacted
+                    for k, v in scrub_res.entities_found.items():
+                        pii_entities[k] = pii_entities.get(k, 0) + v
+                # Reconstruct full text from already-scrubbed pages instead of
+                # running a redundant second regex pass over the whole document.
+                extraction.text = "\n\n".join(p.text for p in extraction.pages)
+            elif hasattr(extraction, "text") and extraction.text:
+                scrub_res = scrubber.scrub(extraction.text)
+                extraction.text = scrub_res.cleaned_text
                 total_pii_redacted += scrub_res.total_redacted
                 for k, v in scrub_res.entities_found.items():
                     pii_entities[k] = pii_entities.get(k, 0) + v
-
-            if hasattr(extraction, "text") and extraction.text:
-                scrub_res = scrubber.scrub(extraction.text)
-                extraction.text = scrub_res.cleaned_text
 
             if total_pii_redacted > 0:
                 logger.info(

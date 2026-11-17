@@ -1,0 +1,24 @@
+[package]
+name = "opennotebook_core"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance Rust data-plane primitives (DFA PII scrubber, UAX#29 semantic chunker, and inverted-index BM25) for OpenNotebook."
+license = "MIT"
+
+[lib]
+name = "opennotebook_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+python = ["dep:pyo3"]
+
+[dependencies]
+rayon = "1.10"
+regex = "1.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+unicode-segmentation = "1.12"
+uuid = { version = "1.11", features = ["v5"] }
+pyo3 = { version = "0.23", features = ["extension-module"], optional = true }

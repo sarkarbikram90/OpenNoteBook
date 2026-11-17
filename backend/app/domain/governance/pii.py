@@ -90,6 +90,9 @@ class PIIScrubber:
     def scrub(self, text: str, strategy: MaskingStrategy | None = None) -> PIIScrubResult:
         """Sanitize text by replacing sensitive entities.
 
+        Delegates to the compiled Rust DFA PII scrubber (`opennotebook_core`)
+        when available, and falls back to single-pass Python regex substitution.
+
         Args:
             text: Raw input text.
             strategy: Masking strategy to use (default: instance default).
@@ -98,6 +101,17 @@ class PIIScrubber:
             PIIScrubResult containing sanitized text and detection metrics.
         """
         strat = strategy or self.default_strategy
+        from app.infrastructure.rust_accel import rust_scrub_pii
+
+        rust_res = rust_scrub_pii(text, strat.value)
+        if rust_res is not None:
+            cleaned_rust, entities_rust, total_rust = rust_res
+            return PIIScrubResult(
+                cleaned_text=cleaned_rust,
+                entities_found=entities_rust,
+                total_redacted=total_rust,
+            )
+
         entities_found: dict[str, int] = {}
         total = 0
         cleaned = text
@@ -132,38 +146,54 @@ class PIIScrubber:
             count = len(matches)
             entities_found["SSN"] = count
             total += count
-            cleaned = self.SSN_PATTERN.sub(self._mask_value("ssn", "SSN", strat), cleaned)
+            cleaned = self.SSN_PATTERN.sub(
+                lambda m: self._mask_value(m.group(0), "SSN", strat), cleaned
+            )
 
-        # 5. Credit Cards (Luhn check validated)
-        card_matches = self.CREDIT_CARD_CANDIDATE.findall(cleaned)
+        # 5. Credit Cards (Luhn check validated in a single regex sub pass)
         card_count = 0
-        for cand in card_matches:
+
+        def _replace_card(match: re.Match[str]) -> str:
+            nonlocal card_count
+            cand = match.group(0)
             if _luhn_check(cand):
                 card_count += 1
-                cleaned = cleaned.replace(cand, self._mask_value(cand, "CREDIT_CARD", strat))
+                return self._mask_value(cand, "CREDIT_CARD", strat)
+            return cand
+
+        cleaned = self.CREDIT_CARD_CANDIDATE.sub(_replace_card, cleaned)
         if card_count > 0:
             entities_found["CREDIT_CARD"] = card_count
             total += card_count
 
-        # 6. Emails
-        email_matches = self.EMAIL_PATTERN.findall(cleaned)
-        if email_matches:
-            count = len(email_matches)
-            entities_found["EMAIL"] = count
-            total += count
-            for m in set(email_matches):
-                cleaned = cleaned.replace(m, self._mask_value(m, "EMAIL", strat))
+        # 6. Emails (single-pass regex sub)
+        email_count = 0
 
-        # 7. Phones
-        phone_matches = self.PHONE_PATTERN.findall(cleaned)
-        if phone_matches:
-            valid_phones = [p for p in phone_matches if len(re.sub(r"\D", "", p)) >= 10]
-            if valid_phones:
-                count = len(valid_phones)
-                entities_found["PHONE"] = count
-                total += count
-                for p in set(valid_phones):
-                    cleaned = cleaned.replace(p, self._mask_value(p, "PHONE", strat))
+        def _replace_email(match: re.Match[str]) -> str:
+            nonlocal email_count
+            email_count += 1
+            return self._mask_value(match.group(0), "EMAIL", strat)
+
+        cleaned = self.EMAIL_PATTERN.sub(_replace_email, cleaned)
+        if email_count > 0:
+            entities_found["EMAIL"] = email_count
+            total += email_count
+
+        # 7. Phones (single-pass regex sub)
+        phone_count = 0
+
+        def _replace_phone(match: re.Match[str]) -> str:
+            nonlocal phone_count
+            cand = match.group(0)
+            if len(re.sub(r"\D", "", cand)) >= 10:
+                phone_count += 1
+                return self._mask_value(cand, "PHONE", strat)
+            return cand
+
+        cleaned = self.PHONE_PATTERN.sub(_replace_phone, cleaned)
+        if phone_count > 0:
+            entities_found["PHONE"] = phone_count
+            total += phone_count
 
         return PIIScrubResult(
             cleaned_text=cleaned,
