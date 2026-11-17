@@ -6,9 +6,22 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const BM25_K1: f64 = 1.5;
 const BM25_B: f64 = 0.75;
+
+fn index_cache() -> &'static Mutex<HashMap<u64, Arc<Bm25InvertedIndex>>> {
+    static CACHE: OnceLock<Mutex<HashMap<u64, Arc<Bm25InvertedIndex>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn hash_str(s: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bm25InvertedIndex {
@@ -152,6 +165,23 @@ impl Bm25InvertedIndex {
 
     pub fn from_json(json_str: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json_str)
+    }
+
+    pub fn from_json_cached(json_str: &str) -> Result<Arc<Self>, serde_json::Error> {
+        let key = hash_str(json_str);
+        if let Ok(guard) = index_cache().lock() {
+            if let Some(existing) = guard.get(&key) {
+                return Ok(Arc::clone(existing));
+            }
+        }
+        let parsed = Arc::new(serde_json::from_str::<Self>(json_str)?);
+        if let Ok(mut guard) = index_cache().lock() {
+            if guard.len() >= 32 {
+                guard.clear();
+            }
+            guard.insert(key, Arc::clone(&parsed));
+        }
+        Ok(parsed)
     }
 }
 

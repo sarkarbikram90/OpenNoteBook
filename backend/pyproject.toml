@@ -187,6 +187,7 @@ ignore = [
 "app/infrastructure/llm/base.py" = ["ARG002"]
 # CLI scripts print reports to stdout by design.
 "app/scripts/run_eval.py" = ["T201"]
+"app/scripts/benchmark_rust_vs_python.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

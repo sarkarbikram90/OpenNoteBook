@@ -124,7 +124,7 @@ mod py_bindings {
         top_k: usize,
     ) -> PyResult<Vec<(String, f64)>> {
         py.allow_threads(|| {
-            let index = Bm25InvertedIndex::from_json(index_json)
+            let index = Bm25InvertedIndex::from_json_cached(index_json)
                 .map_err(|e| PyValueError::new_err(format!("BM25 deserialize error: {e}")))?;
             Ok(index.score_query(query, top_k))
         })
