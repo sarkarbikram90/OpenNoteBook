@@ -60,6 +60,12 @@ def embed_texts(
         return []
 
     settings = get_settings()
+    provider = getattr(settings, "embedding_provider", "local").lower().strip()
+    if provider in ("vertex_ai", "vertex"):
+        from app.infrastructure.embeddings.vertex_ai import embed_texts_vertex_ai
+
+        return embed_texts_vertex_ai(texts, batch_size=batch_size, is_query=is_query)
+
     if batch_size is None:
         batch_size = settings.embedding_batch_size
 

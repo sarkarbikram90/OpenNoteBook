@@ -1,7 +1,14 @@
 /** OpenNotebook — Sources API functions. */
 
 import { apiFetch } from '@/lib/api';
-import type { Source, SourceListResponse, SourceUploadResponse } from '@/lib/types';
+import type {
+  SignedDownloadResponse,
+  SignedUploadRequest,
+  SignedUploadResponse,
+  Source,
+  SourceListResponse,
+  SourceUploadResponse,
+} from '@/lib/types';
 import { getTokens } from '@/stores/auth';
 
 const API_BASE = '/api/v1';
@@ -80,3 +87,36 @@ export async function triggerSummary(
     { method: 'POST' },
   );
 }
+
+export async function createSignedUploadUrl(
+  notebookId: string,
+  data: SignedUploadRequest,
+): Promise<SignedUploadResponse> {
+  return apiFetch<SignedUploadResponse>(
+    `/notebooks/${notebookId}/sources/upload-url`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
+}
+
+export async function confirmSignedUpload(
+  notebookId: string,
+  sourceId: string,
+): Promise<SourceUploadResponse> {
+  return apiFetch<SourceUploadResponse>(
+    `/notebooks/${notebookId}/sources/${sourceId}/confirm-upload`,
+    { method: 'POST' },
+  );
+}
+
+export async function getSignedDownloadUrl(
+  notebookId: string,
+  sourceId: string,
+): Promise<SignedDownloadResponse> {
+  return apiFetch<SignedDownloadResponse>(
+    `/notebooks/${notebookId}/sources/${sourceId}/download-url`,
+  );
+}
+

@@ -8,7 +8,6 @@ module-level singleton.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -24,30 +23,25 @@ from qdrant_client.models import (
 )
 
 from app.core.config import get_settings
-from app.infrastructure.qdrant.schema import PAYLOAD_INDEX_FIELDS, dimension_matches
+from app.infrastructure.qdrant.schema import (
+    PAYLOAD_INDEX_FIELDS,
+    ChunkPayload,
+    dimension_matches,
+)
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ChunkPayload:
-    """Data transfer object for a chunk to be upserted into Qdrant."""
-
-    chunk_id: str
-    source_id: str
-    notebook_id: str
-    text: str
-    token_count: int
-    page: int | None = None
-    section: str | None = None
-    start_char: int = 0
-    end_char: int = 0
-    embedding_model: str = ""
-    workspace_id: str = ""
-    sensitivity_level: str = "internal"
-    allowed_roles: list[str] = field(default_factory=list)
-    allowed_users: list[str] = field(default_factory=list)
-    vector: list[float] = field(default_factory=list)
+__all__ = [
+    "ChunkPayload",
+    "delete_by_notebook",
+    "delete_by_source",
+    "ensure_collection",
+    "ensure_payload_indexes",
+    "get_all_chunks_for_notebook",
+    "get_chunks_by_ids",
+    "get_qdrant_client",
+    "upsert_chunks",
+]
 
 
 @lru_cache(maxsize=1)
@@ -154,6 +148,7 @@ def upsert_chunks(chunks: list[ChunkPayload]) -> None:
             payload={
                 "chunk_id": chunk.chunk_id,
                 "source_id": chunk.source_id,
+                "source_name": chunk.source_name,
                 "notebook_id": chunk.notebook_id,
                 "workspace_id": chunk.workspace_id,
                 "sensitivity_level": chunk.sensitivity_level,

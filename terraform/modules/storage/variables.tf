@@ -43,3 +43,15 @@ variable "db_password" {
   type        = string
   sensitive   = true
 }
+
+variable "pubsub_topic_name" {
+  description = "Pub/Sub topic name for GCS OBJECT_FINALIZE notifications"
+  type        = string
+  default     = "opennotebook-gcs-events"
+}
+
+variable "pubsub_push_endpoint" {
+  description = "Optional HTTPS push endpoint for Cloud Run / API event ingestion (/api/v1/events/gcs-finalize)"
+  type        = string
+  default     = ""
+}

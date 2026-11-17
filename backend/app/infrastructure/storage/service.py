@@ -263,6 +263,86 @@ class StorageService:
         target_path = self.local_root / clean_object_name
         return target_path.is_file()
 
+    def generate_signed_upload_url(
+        self,
+        object_name: str,
+        content_type: str = "application/octet-stream",
+        expiration_seconds: int | None = None,
+    ) -> str:
+        """Return a presigned/V4-signed upload URL for direct client uploads."""
+        clean_object_name = object_name.lstrip("/")
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import generate_signed_upload_url
+
+            return generate_signed_upload_url(
+                clean_object_name,
+                content_type=content_type,
+                expiration_seconds=expiration_seconds,
+            )
+
+        ttl: int = int(
+            expiration_seconds
+            or getattr(self.settings, "gcs_signed_url_expiration_seconds", 900)
+            or 900
+        )
+        if self.provider in ("minio", "s3"):
+            try:
+                from datetime import timedelta
+
+                from app.infrastructure.minio.client import get_minio_client
+
+                client = get_minio_client()
+                return str(
+                    client.presigned_put_object(
+                        self.settings.minio_bucket,
+                        clean_object_name,
+                        expires=timedelta(seconds=ttl),
+                    )
+                )
+            except Exception as exc:
+                logger.warning("MinIO presigned PUT URL failed (%s); using local upload path", exc)
+
+        return f"/api/v1/storage/local-upload/{clean_object_name}"
+
+    def generate_signed_download_url(
+        self,
+        object_name: str,
+        expiration_seconds: int | None = None,
+    ) -> str:
+        """Return a presigned/V4-signed download URL for reading an object."""
+        clean_object_name = object_name.lstrip("/")
+        if self.provider == "gcs":
+            from app.infrastructure.storage.gcs import generate_signed_download_url
+
+            return generate_signed_download_url(
+                clean_object_name,
+                expiration_seconds=expiration_seconds,
+            )
+
+        ttl: int = int(
+            expiration_seconds
+            or getattr(self.settings, "gcs_signed_url_expiration_seconds", 900)
+            or 900
+        )
+        if self.provider in ("minio", "s3"):
+            try:
+                from datetime import timedelta
+
+                from app.infrastructure.minio.client import get_minio_client
+
+                client = get_minio_client()
+                return str(
+                    client.presigned_get_object(
+                        self.settings.minio_bucket,
+                        clean_object_name,
+                        expires=timedelta(seconds=ttl),
+                    )
+                )
+            except Exception as exc:
+                logger.warning("MinIO presigned GET URL failed (%s); using local download path", exc)
+
+        return f"/api/v1/storage/local-download/{clean_object_name}"
+
     def _upload_local(self, data: bytes, object_name: str) -> str:
         target_path = self.local_root / object_name
         target_path.parent.mkdir(parents=True, exist_ok=True)

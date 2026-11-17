@@ -336,17 +336,16 @@ def execute_process_source(source_id: str) -> dict:
             vectors = embed_texts(texts, batch_size=settings.embedding_batch_size)
         except Exception as embed_exc:
             logger.warning("Embedding generation failed (%s). Falling back to zero-vectors.", embed_exc)
-            vectors = [[0.0] * 384 for _ in texts]
+            vectors = [[0.0] * settings.embedding_dimension for _ in texts]
 
-        # ── Step 4: Upsert to Qdrant ────────────────────────────────────
+        # ── Step 4: Upsert to Vector Database (pgvector or Qdrant) ──────
         try:
-            # Delete any existing vectors for this source (in case of re-index)
-            delete_by_source(source_id)
-
+            source_name = str(source.get("name") or "")
             chunk_payloads = [
                 ChunkPayload(
                     chunk_id=chunk.chunk_id,
                     source_id=chunk.source_id,
+                    source_name=source_name,
                     notebook_id=chunk.notebook_id,
                     workspace_id=workspace_id,
                     sensitivity_level=sensitivity_level,
@@ -364,9 +363,17 @@ def execute_process_source(source_id: str) -> dict:
                 for chunk, vector in zip(chunks, vectors)
             ]
 
-            upsert_chunks(chunk_payloads)
+            if getattr(settings, "vector_store_provider", "qdrant").lower() == "pgvector":
+                from app.infrastructure.pgvector import client as pgvector_client
+
+                pgvector_client.delete_by_source(source_id)
+                pgvector_client.upsert_chunks(chunk_payloads)
+            else:
+                # Delete any existing vectors for this source (in case of re-index)
+                delete_by_source(source_id)
+                upsert_chunks(chunk_payloads)
         except Exception as q_exc:
-            logger.warning("Vector store upsert skipped (Qdrant not available): %s", q_exc)
+            logger.warning("Vector store upsert skipped (vector store not available): %s", q_exc)
 
         # ── Step 5: Build BM25 index ────────────────────────────────────
         try:

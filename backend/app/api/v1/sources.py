@@ -17,6 +17,9 @@ from sqlalchemy import delete, select
 from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.schemas.sources import (
+    SignedDownloadResponse,
+    SignedUploadRequest,
+    SignedUploadResponse,
     SourceListResponse,
     SourceResponse,
     SourceUploadResponse,
@@ -295,6 +298,208 @@ async def upload_file_source(
     return SourceUploadResponse(source_id=source_id)
 
 
+# ── Signed Upload / Download URL Endpoints ─────────────────────────────────
+
+
+@router.post(
+    "/upload-url",
+    response_model=SignedUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate a V4 signed upload URL for direct GCS/object-store upload",
+)
+async def create_signed_upload_url(
+    notebook_id: uuid.UUID,
+    body: SignedUploadRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> SignedUploadResponse:
+    """Pre-register a source document and return a signed PUT URL.
+
+    1. Validates notebook ownership, file type, and optional size limit.
+    2. Checks SHA-256 deduplication if ``sha256`` was supplied.
+    3. Creates a ``Source`` record in ``UPLOADED`` state awaiting GCS
+       ``OBJECT_FINALIZE`` Pub/Sub notification (or explicit ``/confirm-upload``).
+    4. Returns the V4 signed upload URL and object key.
+    """
+    settings = get_settings()
+    await _verify_notebook_ownership(notebook_id, user.id, db)
+
+    source_type = _detect_source_type(body.filename, body.content_type)
+    max_size = settings.max_upload_size_mb * 1024 * 1024
+    if body.size_bytes is not None and body.size_bytes > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {settings.max_upload_size_mb}MB limit",
+        )
+
+    if body.sha256:
+        existing = await find_source_by_checksum(db, notebook_id, body.sha256)
+        if existing is not None:
+            return SignedUploadResponse(
+                source_id=existing.id,
+                object_name=existing.storage_path or "",
+                upload_url="",
+                content_type=body.content_type,
+                expires_in_seconds=0,
+                status=existing.status,
+                duplicate=True,
+            )
+
+    from app.infrastructure.storage.service import get_storage_service
+
+    source_id = uuid.uuid4()
+    object_name = raw_key(str(notebook_id), str(source_id), body.filename)
+    storage = get_storage_service()
+    ttl = getattr(settings, "gcs_signed_url_expiration_seconds", 900)
+
+    upload_url = await run_in_threadpool(
+        storage.generate_signed_upload_url,
+        object_name,
+        body.content_type,
+        ttl,
+    )
+
+    source = Source(
+        id=source_id,
+        notebook_id=notebook_id,
+        name=body.filename,
+        source_type=source_type,
+        storage_path=object_name,
+        storage_type=storage.provider,
+        content_type=body.content_type,
+        checksum=body.sha256,
+        status="UPLOADED",
+        metadata_={
+            "upload_mode": "signed_url",
+            "size_bytes": body.size_bytes,
+            "sha256": body.sha256,
+        },
+    )
+    db.add(source)
+    await db.flush()
+
+    await record_audit_event(
+        db=db,
+        action="source.signed_upload_url",
+        resource_type="source",
+        resource_id=str(source_id),
+        user_id=user.id,
+        details={
+            "name": body.filename,
+            "source_type": source_type,
+            "notebook_id": str(notebook_id),
+            "object_name": object_name,
+        },
+    )
+
+    return SignedUploadResponse(
+        source_id=source_id,
+        object_name=object_name,
+        upload_url=upload_url,
+        content_type=body.content_type,
+        expires_in_seconds=ttl,
+        status="UPLOADED",
+    )
+
+
+@router.post(
+    "/{source_id}/confirm-upload",
+    response_model=SourceUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Confirm completion of a signed-URL upload and enqueue ingestion",
+)
+async def confirm_signed_upload(
+    notebook_id: uuid.UUID,
+    source_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    background_tasks: BackgroundTasks,
+) -> SourceUploadResponse:
+    """Verify the uploaded object exists in storage and dispatch processing."""
+    await _verify_notebook_ownership(notebook_id, user.id, db)
+
+    result = await db.execute(
+        select(Source).where(
+            Source.id == source_id,
+            Source.notebook_id == notebook_id,
+        )
+    )
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    if source.status in ("READY", "EXTRACTING", "CHUNKING", "EMBEDDING"):
+        return SourceUploadResponse(
+            source_id=source.id,
+            status=source.status,
+            message="Source is already processing or ready",
+        )
+
+    from app.infrastructure.storage.service import get_storage_service
+
+    storage = get_storage_service(provider=source.storage_type)
+    if source.storage_path:
+        exists = await run_in_threadpool(storage.object_exists, source.storage_path)
+        if not exists:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Uploaded object not found in storage yet",
+            )
+
+    source.status = "QUEUED"
+    await db.flush()
+    _dispatch_source_task(source.id, background_tasks)
+
+    return SourceUploadResponse(
+        source_id=source.id,
+        status="QUEUED",
+        message="Signed upload confirmed and queued for processing",
+    )
+
+
+@router.get(
+    "/{source_id}/download-url",
+    response_model=SignedDownloadResponse,
+    summary="Generate a signed download URL for a source document",
+)
+async def get_signed_download_url(
+    notebook_id: uuid.UUID,
+    source_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> SignedDownloadResponse:
+    """Return a time-limited V4 signed GET URL for the original source object."""
+    settings = get_settings()
+    await _verify_notebook_ownership(notebook_id, user.id, db)
+
+    result = await db.execute(
+        select(Source).where(
+            Source.id == source_id,
+            Source.notebook_id == notebook_id,
+        )
+    )
+    source = result.scalar_one_or_none()
+    if source is None or not source.storage_path:
+        raise HTTPException(status_code=404, detail="Source object not found")
+
+    from app.infrastructure.storage.service import get_storage_service
+
+    storage = get_storage_service(provider=source.storage_type)
+    ttl = getattr(settings, "gcs_signed_url_expiration_seconds", 900)
+    download_url = await run_in_threadpool(
+        storage.generate_signed_download_url,
+        source.storage_path,
+        ttl,
+    )
+
+    return SignedDownloadResponse(
+        source_id=source.id,
+        object_name=source.storage_path,
+        download_url=download_url,
+        expires_in_seconds=ttl,
+    )
+
+
 # ── URL / YouTube Upload Endpoint ──────────────────────────────────────────
 
 
@@ -450,10 +655,18 @@ async def delete_source(
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    # Clean up Qdrant vectors
+    # Clean up vectors from configured vector database (pgvector or Qdrant)
     try:
-        from app.infrastructure.qdrant.client import delete_by_source
-        delete_by_source(str(source_id))
+        if getattr(get_settings(), "vector_store_provider", "qdrant").lower() == "pgvector":
+            from app.infrastructure.pgvector.client import (
+                delete_by_source as pg_delete_by_source,
+            )
+
+            await run_in_threadpool(pg_delete_by_source, str(source_id))
+        else:
+            from app.infrastructure.qdrant.client import delete_by_source
+
+            delete_by_source(str(source_id))
     except Exception:
         pass
 

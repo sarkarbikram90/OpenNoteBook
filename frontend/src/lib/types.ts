@@ -34,12 +34,39 @@ export interface Source {
 }
 
 export type SourceStatus =
+  | 'UPLOADED'
+  | 'QUEUED'
   | 'PENDING'
   | 'EXTRACTING'
   | 'CHUNKING'
   | 'EMBEDDING'
   | 'READY'
   | 'FAILED';
+
+export interface SignedUploadRequest {
+  filename: string;
+  content_type?: string;
+  size_bytes?: number;
+  sha256?: string;
+}
+
+export interface SignedUploadResponse {
+  source_id: string;
+  object_name: string;
+  upload_url: string;
+  method: string;
+  content_type: string;
+  expires_in_seconds: number;
+  status: SourceStatus;
+  duplicate: boolean;
+}
+
+export interface SignedDownloadResponse {
+  source_id: string;
+  object_name: string;
+  download_url: string;
+  expires_in_seconds: number;
+}
 
 export interface SourceListResponse {
   sources: Source[];

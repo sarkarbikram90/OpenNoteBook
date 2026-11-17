@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
+
 import pytest
 
 from app.infrastructure.storage.service import StorageService
@@ -67,8 +67,8 @@ def test_gcs_storage_delegates_to_gcs_adapter(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         gcs,
         "upload_file",
-        lambda data, object_name, content_type, metadata=None: (
-            calls.append(("upload", object_name)) or object_name
+        lambda _data, object_name, content_type, metadata=None: (
+            calls.append(("upload", f"{object_name}:{content_type}:{bool(metadata)}")) or object_name
         ),
     )
     monkeypatch.setattr(
@@ -94,7 +94,7 @@ def test_gcs_storage_delegates_to_gcs_adapter(monkeypatch: pytest.MonkeyPatch):
     storage.delete_raw_document(object_name)
 
     assert calls == [
-        ("upload", object_name),
+        ("upload", f"{object_name}:application/pdf:False"),
         ("download", object_name),
         ("exists", object_name),
         ("delete", object_name),
@@ -165,6 +165,9 @@ def test_gcs_adapter_upload_download_exists_delete(monkeypatch: pytest.MonkeyPat
         def exists(self, timeout):
             return self.data is not None
 
+        def generate_signed_url(self, version, expiration, method, content_type=None):
+            return f"https://storage.googleapis.com/{settings.gcs_bucket}/signed?method={method}&v={version}"
+
     class FakeBucket:
         def __init__(self):
             self.blobs: dict[str, FakeBlob] = {}
@@ -197,5 +200,10 @@ def test_gcs_adapter_upload_download_exists_delete(monkeypatch: pytest.MonkeyPat
     assert bucket.blobs[key].content_type == "application/pdf"
     assert gcs.object_exists(key) is True
     assert gcs.download_file(key) == content
+    upload_url = gcs.generate_signed_upload_url(key, content_type="application/pdf")
+    assert "method=PUT" in upload_url
+    download_url = gcs.generate_signed_download_url(key)
+    assert "method=GET" in download_url
     gcs.delete_file(key)
     assert gcs.object_exists(key) is False
+

@@ -116,13 +116,17 @@ class Settings(BaseSettings):
     minio_bucket: str = "opennotebook"
     minio_secure: bool = False
 
-    # ── Google Cloud Storage ─────────────────────
+    # ── Google Cloud Storage & Pub/Sub ───────────
     # Credentials are resolved through Application Default Credentials (ADC).
     gcs_bucket: str = ""
     gcs_project_id: str = ""
     gcs_timeout_seconds: int = 60
+    gcs_signed_url_expiration_seconds: int = 900
+    pubsub_topic_name: str = "opennotebook-gcs-events"
+    pubsub_verification_token: str = ""
 
-    # ── Qdrant (Vector Store) ────────────────────
+    # ── Vector Store (PostgreSQL + pgvector | Qdrant) ────
+    vector_store_provider: str = "qdrant"  # "pgvector" | "qdrant"
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
     qdrant_collection: str = "opennotebook_chunks"
@@ -132,10 +136,17 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/2"
     connector_poll_seconds: int = 60
 
-    # ── Embedding Model ──────────────────────────
+    # ── Embedding Model (Local BGE | Vertex AI) ──
+    embedding_provider: str = "local"  # "local" | "vertex_ai"
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_batch_size: int = 64
     embedding_dimension: int = 384
+    vertex_ai_location: str = "us-central1"
+    vertex_ai_embedding_model: str = "text-embedding-004"
+
+    # ── Image OCR / Vision Extraction ────────────
+    image_vision_provider: str = "tesseract"  # "tesseract" | "gemini" | "document_ai"
+    document_ai_processor_name: str = ""
 
     # ── Ollama (LLM Inference) ───────────────────
     ollama_url: str = "http://localhost:11434"

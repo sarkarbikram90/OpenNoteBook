@@ -261,6 +261,54 @@ class SourceSummary(Base):
         return f"<SourceSummary id={self.id} source_id={self.source_id}>"
 
 
+# ── Document Chunks (PostgreSQL + pgvector Vector Store) ────────────────────
+
+
+class DocumentChunk(Base):
+    """Persisted document chunk and embedding vector for PostgreSQL + pgvector retrieval."""
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        Index("ix_document_chunks_notebook_id", "notebook_id"),
+        Index("ix_document_chunks_source_id", "source_id"),
+        Index("ix_document_chunks_chunk_id", "chunk_id", unique=True),
+    )
+
+    chunk_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    notebook_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("notebooks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[str] = mapped_column(Text, server_default="", nullable=False)
+    source_name: Mapped[str] = mapped_column(Text, server_default="", nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_char: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    end_char: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    embedding_model: Mapped[str] = mapped_column(Text, server_default="", nullable=False)
+    sensitivity_level: Mapped[str] = mapped_column(Text, server_default="internal", nullable=False)
+    allowed_roles: Mapped[list[str]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
+    allowed_users: Mapped[list[str]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
+    embedding: Mapped[list[float]] = mapped_column(
+        JSONB, server_default="[]", nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<DocumentChunk chunk_id={self.chunk_id!r} source_id={self.source_id}>"
+
+
 # ── Chat Sessions ────────────────────────────────────────────────────────────
 
 

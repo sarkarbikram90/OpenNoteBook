@@ -486,16 +486,20 @@ def _parse_youtube_id(url: str) -> str | None:
 
 
 def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
-    """Extract text embedded in a raster image using Pillow + Tesseract OCR.
+    """Extract text and visual content from a raster image.
 
-    This indexes screenshots, scanned pages and diagrams with readable labels.
-    It does not create visual embeddings or image captions.
+    Supports:
+    - ``tesseract`` (default): Pillow + Tesseract OCR
+    - ``gemini``: Gemini Vision multimodal text & diagram extraction
+    - ``document_ai``: Google Cloud Document AI OCR processor
     """
     import io
     import warnings
 
     import pytesseract
     from PIL import Image, ImageOps, UnidentifiedImageError
+
+    from app.core.config import get_settings
 
     if isinstance(content, str):
         content = content.encode("utf-8")
@@ -516,10 +520,33 @@ def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
     ) as exc:
         raise ValueError(f"Invalid or unsafe image: {exc}") from exc
 
+    settings = get_settings()
+    vision_provider = getattr(settings, "image_vision_provider", "tesseract").lower().strip()
+    mime_map = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "webp": "image/webp",
+        "tiff": "image/tiff",
+    }
+    mime_type = mime_map.get(image_format, "image/png")
+    section_label = "Image OCR"
+
     try:
-        text = str(pytesseract.image_to_string(image, lang="eng")).strip()
+        if vision_provider in ("gemini", "vision"):
+            from app.infrastructure.vision.client import extract_image_with_gemini_vision
+
+            text = extract_image_with_gemini_vision(content, mime_type=mime_type)
+            section_label = "Image Vision & OCR"
+        elif vision_provider == "document_ai":
+            from app.infrastructure.vision.client import extract_image_with_document_ai
+
+            text = extract_image_with_document_ai(content, mime_type=mime_type)
+            section_label = "Document AI OCR"
+        else:
+            text = str(pytesseract.image_to_string(image, lang="eng")).strip()
     except Exception as exc:
-        logger.exception("Image OCR failed")
+        logger.exception("Image extraction failed (provider=%s)", vision_provider)
         raise RuntimeError(f"Image OCR failed: {exc}") from exc
     finally:
         image.close()
@@ -530,9 +557,10 @@ def _extract_image(content: bytes | str, **_kwargs: Any) -> ExtractionResult:
             "format": image_format,
             "page_count": 1,
             "ocr_used": True,
+            "vision_provider": vision_provider,
             "image_width": width,
             "image_height": height,
             "textless_image": not bool(text),
         },
-        pages=[PageContent(page_number=1, text=text, section="Image OCR")],
+        pages=[PageContent(page_number=1, text=text, section=section_label)],
     )

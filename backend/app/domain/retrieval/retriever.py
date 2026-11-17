@@ -223,29 +223,50 @@ def _dense_search(
     source_filter: list[str] | None = None,
     security_context: UserSecurityContext | None = None,
 ) -> list[dict[str, Any]]:
-    """Stage 1a: Dense vector search via Qdrant cosine similarity with security trimming."""
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
+    """Stage 1a: Dense vector search via pgvector or Qdrant cosine similarity with security trimming."""
     from app.domain.sources.embedder import embed_texts
-    from app.infrastructure.qdrant.client import get_qdrant_client
 
     settings = get_settings()
-    client = get_qdrant_client()
 
-    # Embed the query with instruction prefix
+    # Embed the query with instruction prefix / task_type=RETRIEVAL_QUERY
     query_vectors = embed_texts([query], is_query=True)
     if not query_vectors:
         return []
     query_vector = query_vectors[0]
+
+    # Fetch slightly larger candidate set to allow for ACL security trimming
+    candidate_limit = top_k * 2 if security_context else top_k
+
+    if getattr(settings, "vector_store_provider", "qdrant").lower() == "pgvector":
+        from app.infrastructure.pgvector.client import search_chunks
+
+        pg_results = search_chunks(
+            query_vector=query_vector,
+            notebook_id=notebook_id,
+            limit=candidate_limit,
+            source_filter=source_filter,
+        )
+        authorized_chunks: list[dict[str, Any]] = []
+        for payload in pg_results:
+            if not is_chunk_authorized(payload, security_context):
+                continue
+            authorized_chunks.append(payload)
+            if len(authorized_chunks) >= top_k:
+                break
+        logger.debug("pgvector dense search returned %d authorized results", len(authorized_chunks))
+        return authorized_chunks
+
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    from app.infrastructure.qdrant.client import get_qdrant_client
+
+    client = get_qdrant_client()
 
     # Build filter: notebook_id is mandatory, source_id is optional
     must_conditions: list[Any] = [
         FieldCondition(key="notebook_id", match=MatchValue(value=notebook_id))
     ]
     search_filter = Filter(must=must_conditions)
-
-    # Fetch slightly larger candidate set to allow for ACL security trimming
-    candidate_limit = top_k * 2 if security_context else top_k
 
     results = client.search(
         collection_name=settings.qdrant_collection,
@@ -306,10 +327,17 @@ def _bm25_search(
     if not scored_pairs:
         return []
 
-    # Fetch matched chunk payloads from Qdrant
+    # Fetch matched chunk payloads from active vector store (pgvector or Qdrant)
     top_chunk_ids = [cid for cid, _ in scored_pairs]
     score_map = dict(scored_pairs)
-    payloads = get_chunks_by_ids(top_chunk_ids)
+    if getattr(get_settings(), "vector_store_provider", "qdrant").lower() == "pgvector":
+        from app.infrastructure.pgvector.client import (
+            get_chunks_by_ids as pg_get_chunks_by_ids,
+        )
+
+        payloads = pg_get_chunks_by_ids(top_chunk_ids)
+    else:
+        payloads = get_chunks_by_ids(top_chunk_ids)
 
     results = []
     for payload in payloads:

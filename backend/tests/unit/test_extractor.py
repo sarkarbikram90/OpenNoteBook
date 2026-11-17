@@ -99,7 +99,7 @@ def test_image_extractor_uses_ocr_and_preserves_image_metadata(
     monkeypatch.setattr(
         pytesseract,
         "image_to_string",
-        lambda image, lang="eng": "Incident runbook escalation steps",
+        lambda _image, lang="eng": f"Incident runbook escalation steps ({lang})",
     )
 
     result = extract("image", image_buffer.getvalue())
@@ -109,3 +109,35 @@ def test_image_extractor_uses_ocr_and_preserves_image_metadata(
     assert result.metadata["page_count"] == 1
     assert result.metadata["ocr_used"] is True
     assert result.pages[0].section == "Image OCR"
+
+
+def test_image_extractor_supports_gemini_vision_provider(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """When IMAGE_VISION_PROVIDER=gemini, image extraction uses the Gemini vision adapter."""
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from app.core import config
+    from app.infrastructure.vision import client as vision_client
+
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (100, 60), color="white").save(image_buffer, format="PNG")
+
+    monkeypatch.setattr(
+        config,
+        "get_settings",
+        lambda: SimpleNamespace(image_vision_provider="gemini"),
+    )
+    monkeypatch.setattr(
+        vision_client,
+        "extract_image_with_gemini_vision",
+        lambda _content, mime_type="image/png": f"Architecture Diagram ({mime_type})\n\nVisual Summary: GCS -> Pub/Sub -> Worker",
+    )
+
+    result = extract("image", image_buffer.getvalue())
+    assert "Visual Summary: GCS -> Pub/Sub -> Worker" in result.text
+    assert result.metadata["vision_provider"] == "gemini"
+    assert result.pages[0].section == "Image Vision & OCR"
+

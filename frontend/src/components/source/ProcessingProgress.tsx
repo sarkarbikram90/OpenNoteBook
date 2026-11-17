@@ -18,6 +18,8 @@ const steps: { status: SourceStatus; label: string }[] = [
 ];
 
 const statusOrder: Record<string, number> = {
+  UPLOADED: 0,
+  QUEUED: 0,
   PENDING: 0,
   EXTRACTING: 1,
   CHUNKING: 2,

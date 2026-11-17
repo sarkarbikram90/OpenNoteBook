@@ -50,6 +50,9 @@ export function statusBadgeVariant(
       return 'success';
     case 'FAILED':
       return 'error';
+    case 'UPLOADED':
+      return 'info';
+    case 'QUEUED':
     case 'PENDING':
       return 'warning';
     case 'EXTRACTING':

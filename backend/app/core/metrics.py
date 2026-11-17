@@ -85,6 +85,22 @@ storage_bytes_total = Counter(
     registry=REGISTRY,
 )
 
+# Pub/Sub & Event-driven Ingestion Metrics
+pubsub_events_total = Counter(
+    "opennotebook_pubsub_events_total",
+    "Total Cloud Storage Pub/Sub events received by event type and outcome",
+    ["event_type", "status"],
+    registry=REGISTRY,
+)
+
+# Vector Database Metrics (pgvector / qdrant)
+vector_store_operations_total = Counter(
+    "opennotebook_vector_store_operations_total",
+    "Vector database operations by backend, operation and status",
+    ["backend", "operation", "status"],
+    registry=REGISTRY,
+)
+
 # Product Metrics
 active_sources = Gauge(
     "opennotebook_active_sources",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any
 
@@ -154,3 +155,64 @@ def object_exists(object_name: str) -> bool:
 
     _record_operation("exists", started_at, "success")
     return exists
+
+
+def generate_signed_upload_url(
+    object_name: str,
+    content_type: str = "application/octet-stream",
+    expiration_seconds: int | None = None,
+) -> str:
+    """Generate a V4-signed PUT URL for direct client uploads to GCS."""
+    settings = get_settings()
+    ttl: int = int(
+        expiration_seconds
+        or getattr(settings, "gcs_signed_url_expiration_seconds", 900)
+        or 900
+    )
+    blob = _get_bucket().blob(object_name)
+    started_at = time.perf_counter()
+    try:
+        signed_url = str(
+            blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(seconds=ttl),
+                method="PUT",
+                content_type=content_type,
+            )
+        )
+    except Exception:
+        _record_operation("signed_upload_url", started_at, "error")
+        raise
+
+    _record_operation("signed_upload_url", started_at, "success")
+    return signed_url
+
+
+def generate_signed_download_url(
+    object_name: str,
+    expiration_seconds: int | None = None,
+) -> str:
+    """Generate a V4-signed GET URL for temporary document download from GCS."""
+    settings = get_settings()
+    ttl: int = int(
+        expiration_seconds
+        or getattr(settings, "gcs_signed_url_expiration_seconds", 900)
+        or 900
+    )
+    blob = _get_bucket().blob(object_name)
+    started_at = time.perf_counter()
+    try:
+        signed_url = str(
+            blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(seconds=ttl),
+                method="GET",
+            )
+        )
+    except Exception:
+        _record_operation("signed_download_url", started_at, "error")
+        raise
+
+    _record_operation("signed_download_url", started_at, "success")
+    return signed_url
+

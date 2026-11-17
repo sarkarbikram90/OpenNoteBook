@@ -23,6 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.connectors import router as connectors_router
+from app.api.v1.events import router as events_router
 from app.api.v1.health import router as health_router
 from app.api.v1.jobs import router as jobs_router
 from app.api.v1.notebooks import router as notebooks_router
@@ -192,6 +193,7 @@ app.include_router(auth_router, prefix=API_V1_PREFIX)
 app.include_router(settings_router, prefix=API_V1_PREFIX)
 app.include_router(notebooks_router, prefix=API_V1_PREFIX)
 app.include_router(sources_router, prefix=API_V1_PREFIX)
+app.include_router(events_router, prefix=API_V1_PREFIX)
 app.include_router(connectors_router, prefix=API_V1_PREFIX)
 app.include_router(chat_router, prefix=API_V1_PREFIX)
 app.include_router(search_router, prefix=API_V1_PREFIX)

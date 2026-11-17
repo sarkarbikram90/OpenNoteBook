@@ -26,8 +26,8 @@ _BM25_DOCS_KEY_PREFIX = "bm25_docs:"
 def build_bm25_index(notebook_id: str) -> int:
     """Build (or rebuild) the BM25 index for a notebook.
 
-    Fetches all chunk payloads from Qdrant, tokenises them, builds a
-    ``BM25Okapi`` index, and serialises the corpus to Redis using safe JSON.
+    Fetches all chunk payloads from the configured vector store, tokenises
+    them, builds a ``BM25Okapi`` index, and serialises the corpus to Redis.
 
     Args:
         notebook_id: UUID of the notebook to index.
@@ -35,7 +35,16 @@ def build_bm25_index(notebook_id: str) -> int:
     Returns:
         Number of chunks indexed.
     """
-    chunks = get_all_chunks_for_notebook(notebook_id)
+    from app.core.config import get_settings
+
+    if getattr(get_settings(), "vector_store_provider", "qdrant").lower() == "pgvector":
+        from app.infrastructure.pgvector.client import (
+            get_all_chunks_for_notebook as pg_get_all_chunks,
+        )
+
+        chunks = pg_get_all_chunks(notebook_id)
+    else:
+        chunks = get_all_chunks_for_notebook(notebook_id)
     if not chunks:
         logger.info("No chunks found for notebook %s, clearing BM25 index", notebook_id)
         _clear_index(notebook_id)

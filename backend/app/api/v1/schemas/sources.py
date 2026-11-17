@@ -21,6 +21,57 @@ class SourceUploadURL(BaseModel):
     name: str | None = Field(None, max_length=255, description="Optional display name")
 
 
+class SignedUploadRequest(BaseModel):
+    """Request body to generate a V4 signed upload URL for direct client uploads."""
+
+    model_config = ConfigDict(strict=True)
+
+    filename: str = Field(..., min_length=1, max_length=255, description="Original filename")
+    content_type: str = Field(
+        default="application/octet-stream",
+        min_length=1,
+        max_length=128,
+        description="MIME content type for the upload",
+    )
+    size_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional file size in bytes for pre-flight validation",
+    )
+    sha256: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description="Optional SHA-256 hex digest for deduplication",
+    )
+
+
+class SignedUploadResponse(BaseModel):
+    """Response containing a pre-registered source ID and signed PUT URL."""
+
+    model_config = ConfigDict(strict=True)
+
+    source_id: uuid.UUID
+    object_name: str
+    upload_url: str
+    method: str = "PUT"
+    content_type: str
+    expires_in_seconds: int
+    status: str = "UPLOADED"
+    duplicate: bool = False
+
+
+class SignedDownloadResponse(BaseModel):
+    """Response containing a signed GET URL for downloading a source document."""
+
+    model_config = ConfigDict(strict=True)
+
+    source_id: uuid.UUID
+    object_name: str
+    download_url: str
+    expires_in_seconds: int
+
+
 # ── Response Schemas ────────────────────────────────────────────────────────
 
 
