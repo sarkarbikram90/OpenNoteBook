@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUploadFiles: (files: File[]) => void;
+  onUploadFiles: (files: File[], useSignedUrl?: boolean) => void;
   onUploadUrl: (url: string, type: 'url' | 'youtube', name?: string) => void;
   isUploading: boolean;
 }
@@ -38,6 +38,7 @@ export function UploadModal({
   const [urlInput, setUrlInput] = useState('');
   const [urlName, setUrlName] = useState('');
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+  const [useSignedUrl, setUseSignedUrl] = useState(false);
 
   const onDrop = useCallback((accepted: File[]) => {
     setDroppedFiles((prev) => [...prev, ...accepted]);
@@ -55,7 +56,7 @@ export function UploadModal({
 
   const handleUploadFiles = () => {
     if (droppedFiles.length === 0) return;
-    onUploadFiles(droppedFiles);
+    onUploadFiles(droppedFiles, useSignedUrl);
     setDroppedFiles([]);
   };
 
@@ -119,6 +120,19 @@ export function UploadModal({
               PDF, DOCX, TXT, Markdown, JPEG, PNG, WEBP, TIFF · Max 50MB each
             </p>
           </div>
+
+          {/* Direct Signed-URL upload toggle */}
+          <label className="mt-3 flex items-center gap-2.5 rounded-lg border border-surface-700/30 bg-surface-800/30 px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useSignedUrl}
+              onChange={(e) => setUseSignedUrl(e.target.checked)}
+              className="h-4 w-4 rounded border-surface-600 text-primary-600 focus:ring-primary-500/40"
+            />
+            <span className="text-xs text-surface-300">
+              Direct Cloud Storage V4 Signed-URL Upload (GCS / S3)
+            </span>
+          </label>
 
           {/* File list */}
           {droppedFiles.length > 0 && (

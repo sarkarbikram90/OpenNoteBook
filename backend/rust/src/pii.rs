@@ -69,10 +69,7 @@ fn patterns() -> &'static CompiledPatterns {
 }
 
 pub fn is_valid_ssn(candidate: &str) -> bool {
-    let digits: Vec<u8> = candidate
-        .bytes()
-        .filter(|b| b.is_ascii_digit())
-        .collect();
+    let digits: Vec<u8> = candidate.bytes().filter(|b| b.is_ascii_digit()).collect();
     if digits.len() != 9 {
         return false;
     }

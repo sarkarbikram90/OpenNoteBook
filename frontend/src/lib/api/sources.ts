@@ -120,3 +120,39 @@ export async function getSignedDownloadUrl(
   );
 }
 
+export async function uploadFileViaSignedUrl(
+  notebookId: string,
+  file: File,
+): Promise<SourceUploadResponse> {
+  const signed = await createSignedUploadUrl(notebookId, {
+    filename: file.name,
+    content_type: file.type || 'application/octet-stream',
+    size_bytes: file.size,
+  });
+
+  if (signed.duplicate) {
+    return {
+      source_id: signed.source_id,
+      status: signed.status,
+      message: 'Duplicate document detected; using existing source',
+    };
+  }
+
+  if (signed.upload_url.startsWith('http://') || signed.upload_url.startsWith('https://')) {
+    const putResp = await fetch(signed.upload_url, {
+      method: signed.method || 'PUT',
+      headers: {
+        'Content-Type': signed.content_type || file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!putResp.ok) {
+      throw new Error(`Signed URL upload failed with HTTP ${putResp.status}`);
+    }
+    return confirmSignedUpload(notebookId, signed.source_id);
+  }
+
+  // Fallback for local storage mode where no external presigned host is configured
+  return uploadFileSource(notebookId, file);
+}
+

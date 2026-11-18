@@ -1,7 +1,20 @@
 /** OpenNotebook — Source detail view with metadata, summary, and suggested questions. */
 
-import { FileText, Globe, Youtube, Image, Calendar, Hash, Cpu, HelpCircle } from 'lucide-react';
+import { useState } from 'react';
+import {
+  FileText,
+  Globe,
+  Youtube,
+  Image,
+  Calendar,
+  Hash,
+  Cpu,
+  HelpCircle,
+  Download,
+} from 'lucide-react';
 import { Badge, statusBadgeVariant } from '@/components/ui/Badge';
+import { getSignedDownloadUrl } from '@/lib/api/sources';
+import { addToast } from '@/stores/toast';
 import type { Source } from '@/lib/types';
 
 interface SourceDetailProps {
@@ -11,6 +24,7 @@ interface SourceDetailProps {
 }
 
 export function SourceDetail({ source, onClose, onAskQuestion }: SourceDetailProps) {
+  const [isDownloading, setIsDownloading] = useState(false);
   const typeIcon = {
     pdf: FileText,
     image: Image,
@@ -21,6 +35,21 @@ export function SourceDetail({ source, onClose, onAskQuestion }: SourceDetailPro
     youtube: Youtube,
   }[source.source_type] || FileText;
   const TypeIcon = typeIcon;
+
+  const handleDownloadSignedUrl = async () => {
+    try {
+      setIsDownloading(true);
+      const res = await getSignedDownloadUrl(source.notebook_id, source.id);
+      if (res.download_url) {
+        window.open(res.download_url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not generate download link';
+      addToast('error', 'Download link failed', msg);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto border-l border-surface-700/30 bg-surface-900/50 w-80 p-5">
@@ -67,7 +96,22 @@ export function SourceDetail({ source, onClose, onAskQuestion }: SourceDetailPro
           {source.source_url && (
             <MetaItem icon={Globe} label="URL" value={source.source_url} />
           )}
+          {source.storage_path && (
+            <MetaItem icon={FileText} label="Object Key" value={source.storage_path} />
+          )}
         </div>
+
+        {source.storage_path && (
+          <button
+            type="button"
+            onClick={handleDownloadSignedUrl}
+            disabled={isDownloading}
+            className="mt-3 w-full flex items-center justify-center gap-2 rounded-lg border border-primary-500/30 bg-primary-500/10 px-3 py-2 text-xs font-medium text-primary-300 hover:bg-primary-500/20 disabled:opacity-50 transition-all"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {isDownloading ? 'Generating Signed URL...' : 'Download Original (Signed URL)'}
+          </button>
+        )}
       </div>
 
       {/* Suggested questions placeholder */}

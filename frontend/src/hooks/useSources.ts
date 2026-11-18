@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getSources,
   uploadFileSource,
+  uploadFileViaSignedUrl,
   uploadUrlSource,
   deleteSource,
   reindexSource,
@@ -33,19 +34,28 @@ export function useSources(notebookId: string) {
       const data = query.state.data;
       if (!data?.sources || data.sources.length === 0) return false;
       const hasActive = data.sources.some((s) =>
-        ['PENDING', 'EXTRACTING', 'CHUNKING', 'EMBEDDING'].includes(s.status)
+        ['UPLOADED', 'QUEUED', 'PENDING', 'EXTRACTING', 'CHUNKING', 'EMBEDDING'].includes(
+          s.status,
+        ),
       );
       return hasActive ? 3000 : false;
     },
   });
 }
 
-/** Upload a file source. */
+/** Upload a file source (multipart or direct V4 signed URL). */
 export function useUploadSource(notebookId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (file: File) => uploadFileSource(notebookId, file),
+    mutationFn: (input: File | { file: File; useSignedUrl?: boolean }) => {
+      if (input instanceof File) {
+        return uploadFileSource(notebookId, input);
+      }
+      return input.useSignedUrl
+        ? uploadFileViaSignedUrl(notebookId, input.file)
+        : uploadFileSource(notebookId, input.file);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: sourceKeys.all(notebookId) });
       addToast('info', 'Source uploaded', 'Processing has started');

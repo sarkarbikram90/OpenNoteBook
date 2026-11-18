@@ -50,8 +50,10 @@ By default, every stage of the pipeline—document parsing, OCR, PII redaction, 
 | **100% Local / Air-Gapped Execution** | ✅ | ❌ |
 | **Open Source (MIT)** | ✅ | ❌ |
 | **Pluggable LLMs** (Ollama, OpenAI, Anthropic, Gemini) | ✅ | ❌ |
-| **Pluggable Object Storage** (Local, GCS, S3, MinIO) | ✅ | ❌ |
-| **Hybrid Retrieval** (Dense Vector + BM25 + Cross-Encoder Reranking) | ✅ | — |
+| **Pluggable Object Storage** (Local, GCS Signed URLs + Pub/Sub, S3, MinIO) | ✅ | ❌ |
+| **Pluggable Vector Databases** (PostgreSQL + `pgvector` & Qdrant) | ✅ | ❌ |
+| **Hybrid Retrieval** (Dense Vector + Inverted-Index BM25 + Cross-Encoder Reranking) | ✅ | — |
+| **Rust `PyO3` Data-Plane Acceleration** (`opennotebook_core`: DFA PII, UAX#29 Chunker, BM25) | ✅ | — |
 | **Real-Time SSE Streaming & Grounded Inline Citations** | ✅ | ✅ |
 | **Automated PII Redaction & Security Guardrails** | ✅ | ❌ |
 | **Enterprise Connectors & ACL Filtering** | ✅ | ❌ |
@@ -62,22 +64,27 @@ By default, every stage of the pipeline—document parsing, OCR, PII redaction, 
 
 ## ✨ Key Features
 
-- **Multi-Format Document Ingestion & OCR**
-  - Upload **PDFs** (`PyMuPDF`), **Word documents** (`.docx`), **Markdown**, **Plain Text**, **Web URLs** (`trafilatura`), **YouTube video transcripts**, and **Raster Images** (`JPEG`, `PNG`, `WEBP`, `TIFF` via Tesseract OCR).
+- **Multi-Format Document Ingestion, OCR & Multimodal Vision**
+  - Upload **PDFs** (`PyMuPDF`), **Word documents** (`.docx`), **Markdown**, **Plain Text**, **Web URLs** (`trafilatura`), **YouTube video transcripts**, and **Raster Images** (`JPEG`, `PNG`, `WEBP`, `TIFF` via **Tesseract OCR**, **Gemini Vision**, or **Google Cloud Document AI**).
+  - Direct **Google Cloud Storage V4 Signed Upload/Download URLs** (`/upload-url`, `/confirm-upload`, `/download-url`) and event-driven **GCS `OBJECT_FINALIZE` $\rightarrow$ Google Pub/Sub** webhook ingestion (`/api/v1/events/gcs-finalize`) with object-generation idempotency.
   - Content-addressable SHA-256 deduplication and asynchronous background processing with Celery workers and Dead Letter Queue (DLQ) recovery.
 
-- **Precision Hybrid Retrieval Pipeline**
-  - Recursive token-aware semantic chunking (default 800 tokens with 100-token overlap).
-  - Combines **dense vector similarity** in **Qdrant** (`BAAI/bge-small-en-v1.5`) with **sparse lexical search** (**BM25**), fused and re-scored by a **cross-encoder reranker** (`BAAI/bge-reranker-base`).
+- **Precision Hybrid Retrieval & Rust Data-Plane Acceleration**
+  - Compiled **Rust `opennotebook_core` (`PyO3` + `maturin`)** extension accelerates CPU-bound data-plane hot paths while releasing the Python GIL:
+    - **16.9x faster** linear-time DFA PII detection & redaction (`regex` crate + Luhn check)
+    - **2.5x faster** UAX #29 Unicode sentence-boundary semantic chunking with `rayon` page parallelism
+    - **34.2x faster** pre-computed Okapi BM25 inverted-index query scoring with in-memory `Arc` caching
+  - Combines **dense vector similarity** in **PostgreSQL + `pgvector`** or **Qdrant** (`Vertex AI text-embedding-004` or local `BAAI/bge-small-en-v1.5`) with **sparse lexical search** (**BM25**), fused via **Reciprocal Rank Fusion (RRF)** and re-scored by a **cross-encoder reranker** (`BAAI/bge-reranker-base`).
 
 - **Grounded Streaming Chat with Inline Citations**
   - Token-by-token responses streamed over **Server-Sent Events (SSE)**.
-  - Interactive `[1]` citation chips map claims directly back to source passages, page numbers, and document sections.
+  - Interactive `[1]` citation chips map claims directly back to source document names, page numbers, and sections.
   - Persistent multi-session chat history, automatic notebook summaries, and **Markdown / PDF export**.
 
-- **Pluggable Models & Storage Backends**
+- **Pluggable Models, Vector Stores & Object Storage Backends**
   - **LLMs:** Local **Ollama** (`llama3:8b-instruct` default), **OpenAI**, **Anthropic Claude**, **Google Gemini**, plus a deterministic mock LLM stub for offline CI/testing.
-  - **Embeddings:** Local HuggingFace/BGE embeddings on CPU/GPU or **OpenAI** embeddings.
+  - **Embeddings:** **Vertex AI Text Embeddings** (`text-embedding-004` with `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY` task types) or local HuggingFace/BGE embeddings (`BAAI/bge-small-en-v1.5`).
+  - **Vector Databases:** **PostgreSQL + `pgvector`** (`VECTOR_STORE_PROVIDER=pgvector`) or **Qdrant** (`VECTOR_STORE_PROVIDER=qdrant`).
   - **Object Storage:** Local filesystem (`local`), **Google Cloud Storage** (`gcs`), **Amazon S3** (`s3`), or **MinIO** (`minio`), tracked per source for safe multi-backend operation.
 
 - **Enterprise Connectors, Governance & Security**
@@ -95,43 +102,57 @@ By default, every stage of the pipeline—document parsing, OCR, PII redaction, 
 ```mermaid
 flowchart TD
     User(["User Browser"]) -->|HTTPS| Frontend["opennotebook-frontend<br/>React 19 + Vite / Nginx"]
-    Frontend -->|"/api/v1/* (REST & SSE)"| API["opennotebook-api<br/>FastAPI + Python 3.12"]
+    Frontend -->|"/api/v1/* (REST, Signed URLs & SSE)"| API["opennotebook-api<br/>FastAPI + Rust opennotebook_core (PyO3)"]
+    Frontend -.->|"Direct V4 Signed PUT"| Blob[("Google Cloud Storage / S3 / Local<br/>raw/{notebook_id}/{source_id}/{file}")]
 
-    subgraph Storage["Data & Storage Layer"]
-        API -->|Async SQLAlchemy| DB[("PostgreSQL 16<br/>Metadata, Auth & Audit")]
-        API -->|Dense Vector Search| Qdrant[("Qdrant<br/>Vector DB")]
-        API -->|Raw & Processed Blobs| Blob[("Object Storage<br/>Local / GCS / S3 / MinIO")]
-        API -->|Broker, Cache & JWT Revocation| Redis[("Redis 7<br/>Queue & Cache")]
+    subgraph Storage["Data, Vector & Storage Layer"]
+        API -->|Async SQLAlchemy + pgvector| DB[("PostgreSQL 16 + pgvector<br/>Metadata, Auth, Audit & Chunks")]
+        API -->|Dense Vector Search| Qdrant[("Qdrant / pgvector<br/>Vector Store")]
+        API -->|Raw & Processed Blobs| Blob
+        API -->|Broker, BM25 Cache & JWT Revocation| Redis[("Redis 7<br/>Queue & Cache")]
     end
 
-    subgraph Async["Background Ingestion & Sync"]
-        Redis --> Worker["opennotebook-worker<br/>Celery + Beat"]
-        Worker -->|Extract, OCR, Redact PII, Chunk| Blob
-        Worker -->|Upsert Embeddings & ACL Payloads| Qdrant
+    subgraph Async["Event-Driven & Background Ingestion"]
+        Blob -->|"OBJECT_FINALIZE"| PubSub[["Google Cloud Pub/Sub<br/>+ Dead-Letter Topic"]]
+        PubSub -->|"/api/v1/events/gcs-finalize"| API
+        Redis --> Worker["opennotebook-worker<br/>Celery + Rust opennotebook_core"]
+        Worker -->|Extract, OCR / Gemini Vision, DFA PII, UAX#29 Chunk| Blob
+        Worker -->|Upsert Embeddings & Citations| Qdrant
         Worker -->|Update Source Status| DB
     end
 
     subgraph AI["AI & Inference Layer"]
-        API -->|Grounded Prompt + SSE Stream| LLM["Ollama / OpenAI / Anthropic / Gemini"]
-        Worker -->|384-d Embeddings| Embed["BGE-small-en-v1.5 / OpenAI"]
-        API -->|Hybrid Reranking| Rerank["BGE-reranker-base"]
+        API -->|Grounded Prompt + SSE Stream| LLM["Gemini / Ollama / OpenAI / Anthropic"]
+        Worker -->|RETRIEVAL_DOCUMENT Embeddings| Embed["Vertex AI text-embedding-004 / BGE-small"]
+        API -->|Hybrid RRF + Cross-Encoder| Rerank["BGE-reranker-base"]
     end
 ```
+
+### Rust Data-Plane Benchmark (`opennotebook_core` via `PyO3`)
+
+Reproduce locally with `python -m app.scripts.benchmark_rust_vs_python`:
+
+| Workload | Pure Python p50 | Pure Python p95 | Rust (`opennotebook_core`) p50 | Rust p95 | Speedup (p50) |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **PII Scrubbing** (484 KB / 150 pages) | `62.78 ms` | `64.77 ms` | `3.72 ms` | `4.03 ms` | **16.9x** |
+| **Semantic Chunking** (150 pages $\rightarrow$ chunks) | `6.54 ms` | `7.47 ms` | `2.66 ms` | `2.85 ms` | **2.5x** |
+| **BM25 Query Scoring** (5,000 chunks/notebook) | `27.20 ms` | `27.86 ms` | `0.80 ms` | `0.94 ms` | **34.2x** |
 
 ### Repository Structure
 
 ```text
 OpenNoteBook/
-├── backend/                  # FastAPI application & RAG core (Python 3.12)
+├── backend/                  # FastAPI application & RAG core (Python 3.12+)
 │   ├── app/
-│   │   ├── api/v1/           # Thin REST & SSE route handlers + Pydantic v2 schemas
+│   │   ├── api/v1/           # Thin REST, Signed URL, Pub/Sub & SSE route handlers
 │   │   ├── core/             # Config, JWT auth, rate limiting, audit logs, Prometheus metrics
 │   │   ├── domain/           # Core business logic: chat, retrieval, sources, connectors, governance
 │   │   ├── evaluation/       # Automated RAG evaluation dataset, LLM judge, and metrics runner
-│   │   ├── infrastructure/   # DB models, Qdrant, Redis, storage (Local/GCS/S3/MinIO), LLM providers
+│   │   ├── infrastructure/   # DB, pgvector, Qdrant, GCS, Pub/Sub, Vertex AI, Vision, Rust bridge
 │   │   ├── plugins/          # Extensible extractor & chunker plugin interfaces
 │   │   └── worker/           # Celery app, DLQ handler, source processing & sync tasks
-│   ├── migrations/           # Alembic database migrations
+│   ├── rust/                 # Rust PyO3 native extension (`opennotebook_core`: DFA PII, UAX#29 Chunker, BM25)
+│   ├── alembic/              # Alembic database migrations (including pgvector `document_chunks`)
 │   └── tests/                # Unit, integration, and RAG evaluation regression suites
 ├── frontend/                 # React 19 + TypeScript + Tailwind CSS v4 + TanStack Query SPA
 ├── worker/                   # Celery worker container configuration
@@ -335,9 +356,11 @@ OpenNotebook supports both serverless cloud deployment and Kubernetes orchestrat
 
 ### Phase 2 — Multimodal & Collaborative Intelligence (In Progress)
 
+- [x] Multimodal vision extraction & diagram/chart understanding (Gemini Vision & Google Cloud Document AI OCR)
+- [x] Event-driven GCS Pub/Sub `OBJECT_FINALIZE` bucket ingestion with object-generation idempotency & V4 Signed URLs
+- [x] Vertex AI Text Embeddings (`text-embedding-004`) & PostgreSQL + `pgvector` vector store support
+- [x] Rust `PyO3` data-plane acceleration (`opennotebook_core` for DFA PII redaction, UAX#29 chunking, and inverted-index BM25)
 - [ ] Audio overviews & podcast-style two-host dialogue generation (TTS)
-- [ ] Multimodal vision embeddings & diagram/chart understanding (Gemini / Vertex AI Vision)
-- [ ] Event-driven GCS Pub/Sub bucket ingestion for external pipelines
 - [ ] Interactive knowledge graph visualization & GraphRAG traversal
 - [ ] Multi-user collaborative workspaces & fine-grained RBAC UI
 - [ ] Community plugin & connector marketplace

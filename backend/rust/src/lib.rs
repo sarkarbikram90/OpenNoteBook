@@ -26,7 +26,11 @@ mod py_bindings {
     ) -> PyResult<(String, HashMap<String, usize>, usize)> {
         let strat = MaskingStrategy::from_str_lossy(strategy);
         let output = py.allow_threads(|| scrub_text(text, strat));
-        Ok((output.cleaned_text, output.entities_found, output.total_redacted))
+        Ok((
+            output.cleaned_text,
+            output.entities_found,
+            output.total_redacted,
+        ))
     }
 
     #[pyfunction]
@@ -74,24 +78,42 @@ mod py_bindings {
         let mut out = Vec::with_capacity(chunks.len());
         for c in chunks {
             let mut map: HashMap<String, PyObject> = HashMap::with_capacity(10);
-            map.insert("chunk_id".to_string(), c.chunk_id.into_pyobject(py)?.unbind().into());
-            map.insert("source_id".to_string(), c.source_id.into_pyobject(py)?.unbind().into());
+            map.insert(
+                "chunk_id".to_string(),
+                c.chunk_id.into_pyobject(py)?.unbind().into(),
+            );
+            map.insert(
+                "source_id".to_string(),
+                c.source_id.into_pyobject(py)?.unbind().into(),
+            );
             map.insert(
                 "notebook_id".to_string(),
                 c.notebook_id.into_pyobject(py)?.unbind().into(),
             );
-            map.insert("text".to_string(), c.text.into_pyobject(py)?.unbind().into());
+            map.insert(
+                "text".to_string(),
+                c.text.into_pyobject(py)?.unbind().into(),
+            );
             map.insert(
                 "token_count".to_string(),
                 c.token_count.into_pyobject(py)?.unbind().into(),
             );
-            map.insert("page".to_string(), c.page.into_pyobject(py)?.unbind().into());
-            map.insert("section".to_string(), c.section.into_pyobject(py)?.unbind().into());
+            map.insert(
+                "page".to_string(),
+                c.page.into_pyobject(py)?.unbind().into(),
+            );
+            map.insert(
+                "section".to_string(),
+                c.section.into_pyobject(py)?.unbind().into(),
+            );
             map.insert(
                 "start_char".to_string(),
                 c.start_char.into_pyobject(py)?.unbind().into(),
             );
-            map.insert("end_char".to_string(), c.end_char.into_pyobject(py)?.unbind().into());
+            map.insert(
+                "end_char".to_string(),
+                c.end_char.into_pyobject(py)?.unbind().into(),
+            );
             map.insert(
                 "embedding_model".to_string(),
                 c.embedding_model.into_pyobject(py)?.unbind().into(),

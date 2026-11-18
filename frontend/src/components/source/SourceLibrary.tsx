@@ -32,8 +32,8 @@ export function SourceLibrary({ notebookId, onAskQuestion }: SourceLibraryProps)
   );
 
   const handleUploadFiles = useCallback(
-    (files: File[]) => {
-      files.forEach((file) => uploadMutation.mutate(file));
+    (files: File[], useSignedUrl?: boolean) => {
+      files.forEach((file) => uploadMutation.mutate({ file, useSignedUrl }));
       setShowUpload(false);
     },
     [uploadMutation],
