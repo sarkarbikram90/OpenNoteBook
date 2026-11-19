@@ -1,11 +1,13 @@
 /** OpenNotebook — Notebook workspace: split layout with sources sidebar and main panel. */
 
 import { useState } from 'react';
-import { MessageSquare, FolderOpen, ChevronLeft } from 'lucide-react';
+import { MessageSquare, FolderOpen, ChevronLeft, Headphones, Network } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useNotebook } from '@/hooks/useNotebook';
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
 import { SourceLibrary } from '@/components/source/SourceLibrary';
+import { AudioOverviewPanel } from '@/components/studio/AudioOverviewPanel';
+import { KnowledgeGraphPanel } from '@/components/studio/KnowledgeGraphPanel';
 import { Spinner } from '@/components/ui/Spinner';
 
 interface NotebookWorkspaceProps {
@@ -13,7 +15,7 @@ interface NotebookWorkspaceProps {
   onBack: () => void;
 }
 
-type Tab = 'chat' | 'sources';
+type Tab = 'chat' | 'sources' | 'audio' | 'graph';
 
 export function NotebookWorkspace({ notebookId, onBack }: NotebookWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<Tab>('chat');
@@ -56,6 +58,8 @@ export function NotebookWorkspace({ notebookId, onBack }: NotebookWorkspaceProps
           {([
             ['chat', MessageSquare, 'Chat'],
             ['sources', FolderOpen, 'Sources'],
+            ['audio', Headphones, 'Audio Studio'],
+            ['graph', Network, 'Knowledge Graph'],
           ] as const).map(([key, Icon, label]) => (
             <button
               key={key}
@@ -76,11 +80,10 @@ export function NotebookWorkspace({ notebookId, onBack }: NotebookWorkspaceProps
 
       {/* Main panel */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' ? (
-          <ChatWorkspace notebookId={notebookId} />
-        ) : (
-          <SourceLibrary notebookId={notebookId} />
-        )}
+        {activeTab === 'chat' && <ChatWorkspace notebookId={notebookId} />}
+        {activeTab === 'sources' && <SourceLibrary notebookId={notebookId} />}
+        {activeTab === 'audio' && <AudioOverviewPanel notebookId={notebookId} />}
+        {activeTab === 'graph' && <KnowledgeGraphPanel notebookId={notebookId} />}
       </div>
     </div>
   );

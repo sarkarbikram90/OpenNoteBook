@@ -360,9 +360,9 @@ OpenNotebook supports both serverless cloud deployment and Kubernetes orchestrat
 - [x] Event-driven GCS Pub/Sub `OBJECT_FINALIZE` bucket ingestion with object-generation idempotency & V4 Signed URLs
 - [x] Vertex AI Text Embeddings (`text-embedding-004`) & PostgreSQL + `pgvector` vector store support
 - [x] Rust `PyO3` data-plane acceleration (`opennotebook_core` for DFA PII redaction, UAX#29 chunking, and inverted-index BM25)
-- [ ] Audio overviews & podcast-style two-host dialogue generation (TTS)
-- [ ] Interactive knowledge graph visualization & GraphRAG traversal
-- [ ] Multi-user collaborative workspaces & fine-grained RBAC UI
+- [x] Audio overviews & podcast-style two-host dialogue generation (dual-voice TTS + synchronized transcript)
+- [x] Interactive knowledge graph visualization & GraphRAG traversal
+- [x] Multi-user collaborative workspaces & fine-grained RBAC / Connectors / DLQ UI
 - [ ] Community plugin & connector marketplace
 
 ---

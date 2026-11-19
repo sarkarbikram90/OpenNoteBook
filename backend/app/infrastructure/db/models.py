@@ -532,3 +532,39 @@ class ConnectorConfig(Base):
         return f"<ConnectorConfig id={self.id} type={self.connector_type} name={self.name!r}>"
 
 
+# ── Studio Audio Overviews ──────────────────────────────────────────────────
+
+
+class AudioOverview(Base):
+    """Generated two-host podcast Audio Overview for a notebook."""
+
+    __tablename__ = "audio_overviews"
+
+    notebook_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("notebooks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    focus_topic: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tone: Mapped[str] = mapped_column(Text, server_default="deep_dive", nullable=False)
+    status: Mapped[str] = mapped_column(Text, server_default="READY", nullable=False)
+    script_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, server_default="{}", nullable=False
+    )
+    audio_storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_type: Mapped[str] = mapped_column(Text, server_default="local", nullable=False)
+    duration_seconds: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    source_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<AudioOverview id={self.id} notebook_id={self.notebook_id} title={self.title!r}>"
+
+

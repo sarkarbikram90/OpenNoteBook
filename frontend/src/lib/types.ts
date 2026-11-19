@@ -328,3 +328,63 @@ export interface RetryJobResponse {
   source_id: string;
   status: string;
 }
+
+/** Studio — Audio Overviews & Knowledge Graph */
+export type AudioTone = 'deep_dive' | 'brief' | 'debate';
+
+export interface DialogueTurn {
+  speaker: string;
+  text: string;
+}
+
+export interface AudioOverview {
+  id: string;
+  notebook_id: string;
+  title: string;
+  summary: string;
+  focus_topic: string | null;
+  tone: AudioTone;
+  status: string;
+  turns: DialogueTurn[];
+  duration_seconds: number;
+  source_count: number;
+  has_audio_file: boolean;
+  audio_url: string | null;
+  playback_mode: 'server_audio' | 'browser_tts';
+  created_at: string;
+}
+
+export interface AudioOverviewCreateRequest {
+  focus_topic?: string | null;
+  tone?: AudioTone;
+}
+
+export type GraphNodeKind = 'source' | 'person' | 'organization' | 'concept';
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  kind: GraphNodeKind;
+  weight: number;
+  source_ids: string[];
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relation: 'MENTIONS' | 'CO_OCCURS';
+  weight: number;
+}
+
+export interface KnowledgeGraph {
+  notebook_id: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  matched_node_ids: string[];
+  stats: {
+    total_nodes: number;
+    total_edges: number;
+    sources: number;
+    entities: number;
+  };
+}

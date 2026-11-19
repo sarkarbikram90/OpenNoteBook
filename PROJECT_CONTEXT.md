@@ -45,4 +45,4 @@ Full spec: `opennotebook-build-prompt.md` (read this for any domain you're build
 - [x] Phase 2b: Rust `PyO3` Data-Plane Accelerator (`opennotebook_core`)
 - [x] Phase 2c: Cloud Run Hardening (Dedicated HTTP Worker, Alembic Migration Job, Fail-Closed Secrets, Cloud Run Terraform Module)
 - [x] Phase 2d: Frontend Parity (Connectors Management, Workspaces/RBAC & ACL Sharing, Jobs/Eval Dashboard)
-- [ ] Phase 2e: Flagship Multimodal Intelligence (Audio Overviews & Interactive Knowledge Graph / GraphRAG)
+- [x] Phase 2e: Flagship Multimodal Intelligence (Audio Overviews & Interactive Knowledge Graph / GraphRAG)
