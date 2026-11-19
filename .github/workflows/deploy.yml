@@ -31,14 +31,24 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install Dependencies
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "backend/rust -> target"
+
+      - name: Install Dependencies & Build Rust PyO3 Extension
         run: |
           python -m pip install --upgrade pip
+          pip install maturin
           pip install -e "./backend[dev]"
+          cd backend/rust && maturin develop --release --features python
 
-      - name: Run unit + evaluation regression tests
+      - name: Run unit, RAG integration, and evaluation regression tests
         run: |
-          cd backend && pytest tests/evaluation tests/unit -o addopts="" -q
+          cd backend && pytest tests/evaluation tests/unit tests/integration/test_rag_pipeline.py -o addopts="" -q
 
   deploy:
     name: Build, Push, and Deploy
@@ -62,10 +72,20 @@ jobs:
 
       # ── Google Cloud Authentication ──────────────────────────────────────────
 
-      - name: Validate GCP Authentication Configuration
+      - name: Validate GCP Authentication & Required Production Secrets
+        env:
+          JWT_SECRET_KEY_CHECK: ${{ secrets.JWT_SECRET_KEY }}
         run: |
           if [ -z "$WIF_PROVIDER" ] && [ -z "$GCP_SA_KEY" ]; then
             echo "::error::No GCP authentication configured! Please provide either Workload Identity Federation ('WIF_PROVIDER') or Service Account Key ('GCP_SA_KEY') in GitHub Repository Settings (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is required for production deployment."
+            exit 1
+          fi
+          if [ -z "$JWT_SECRET_KEY_CHECK" ]; then
+            echo "::error::JWT_SECRET_KEY secret is required for production deployment (never use hardcoded defaults)."
             exit 1
           fi
 
@@ -130,7 +150,68 @@ jobs:
           docker build -t ${IMAGE_NAME} ./frontend
           docker push ${IMAGE_NAME}
 
-      # ── Deploy to GCP Cloud Run ──────────────────────────────────────────
+      # ── Run Database Migrations & Deploy to GCP Cloud Run ────────────────
+
+      - name: Run Alembic Database Migrations (Cloud Run Job)
+        env:
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+        run: |
+          API_IMAGE=${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:${{ github.sha }}
+          gcloud run jobs deploy opennotebook-migrate \
+            --image="${API_IMAGE}" \
+            --region="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --command="alembic" \
+            --args="upgrade,head" \
+            --memory="1Gi" \
+            --cpu="1" \
+            --task-timeout="300s" \
+            --max-retries="1" \
+            --set-env-vars="APP_ENV=production,DATABASE_URL=${DATABASE_URL},JWT_SECRET_KEY=${JWT_SECRET_KEY},STORAGE_PROVIDER=${{ secrets.STORAGE_PROVIDER || 'gcs' }},GCS_BUCKET=${{ env.GCS_BUCKET }}"
+          gcloud run jobs execute opennotebook-migrate \
+            --region="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" \
+            --wait
+
+      - name: Deploy Worker to Cloud Run
+        id: deploy-worker
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: opennotebook-worker
+          image: ${{ env.GAR_LOCATION }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/worker:${{ github.sha }}
+          region: ${{ env.REGION }}
+          flags: |
+            --allow-unauthenticated
+            --command=uvicorn
+            --args=app.worker.http_worker:app,--host,0.0.0.0,--port,8080
+            --port=8080
+            --memory=4Gi
+            --cpu=2
+            --cpu-boost
+            --min-instances=0
+            --max-instances=5
+            --timeout=900
+          env_vars: |
+            APP_ENV=production
+            LOG_FORMAT=json
+            LOG_LEVEL=INFO
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+            STORAGE_PROVIDER=${{ secrets.STORAGE_PROVIDER || 'gcs' }}
+            GCS_BUCKET=${{ env.GCS_BUCKET }}
+            GCS_PROJECT_ID=${{ env.PROJECT_ID }}
+            GCS_TIMEOUT_SECONDS=60
+            PUBSUB_TOPIC_NAME=${{ secrets.PUBSUB_TOPIC_NAME || 'opennotebook-gcs-events' }}
+            PUBSUB_VERIFICATION_TOKEN=${{ secrets.PUBSUB_VERIFICATION_TOKEN }}
+            WORKER_AUTH_TOKEN=${{ secrets.WORKER_AUTH_TOKEN || secrets.PUBSUB_VERIFICATION_TOKEN }}
+            VECTOR_STORE_PROVIDER=${{ secrets.VECTOR_STORE_PROVIDER || 'pgvector' }}
+            EMBEDDING_PROVIDER=${{ secrets.EMBEDDING_PROVIDER || 'local' }}
+            VERTEX_AI_LOCATION=${{ secrets.VERTEX_AI_LOCATION || 'us-central1' }}
+            VERTEX_AI_EMBEDDING_MODEL=${{ secrets.VERTEX_AI_EMBEDDING_MODEL || 'text-embedding-004' }}
+            IMAGE_VISION_PROVIDER=${{ secrets.IMAGE_VISION_PROVIDER || 'tesseract' }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            LLM_PROVIDER=${{ secrets.LLM_PROVIDER || (secrets.GEMINI_API_KEY && 'gemini') || 'ollama' }}
+            GEMINI_MODEL=${{ secrets.GEMINI_MODEL || 'gemini-1.5-flash' }}
 
       - name: Deploy API to Cloud Run
         id: deploy-api
@@ -145,19 +226,30 @@ jobs:
             --memory=2Gi
             --cpu=2
             --cpu-boost
+            --no-cpu-throttling
             --min-instances=1
             --timeout=300
           env_vars: |
             APP_ENV=production
             LOG_FORMAT=json
             LOG_LEVEL=INFO
-            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY || 'opennotebook-super-strong-jwt-production-secret-key-64chars-min' }}
-            MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY || 'minioadmin-production-secure-key' }}
+            JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+            MINIO_SECRET_KEY=${{ secrets.MINIO_SECRET_KEY }}
             STORAGE_PROVIDER=${{ secrets.STORAGE_PROVIDER || 'gcs' }}
             GCS_BUCKET=${{ env.GCS_BUCKET }}
             GCS_PROJECT_ID=${{ env.PROJECT_ID }}
             GCS_TIMEOUT_SECONDS=60
-            DATABASE_URL=${{ secrets.DATABASE_URL || 'postgresql://postgres.ixjaquviwwtfrdenybxc:getcracked@1990@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres' }}
+            GCS_SIGNED_URL_EXPIRATION_SECONDS=900
+            PUBSUB_TOPIC_NAME=${{ secrets.PUBSUB_TOPIC_NAME || 'opennotebook-gcs-events' }}
+            PUBSUB_VERIFICATION_TOKEN=${{ secrets.PUBSUB_VERIFICATION_TOKEN }}
+            WORKER_HTTP_URL=${{ steps.deploy-worker.outputs.url }}
+            WORKER_AUTH_TOKEN=${{ secrets.WORKER_AUTH_TOKEN || secrets.PUBSUB_VERIFICATION_TOKEN }}
+            VECTOR_STORE_PROVIDER=${{ secrets.VECTOR_STORE_PROVIDER || 'pgvector' }}
+            EMBEDDING_PROVIDER=${{ secrets.EMBEDDING_PROVIDER || 'local' }}
+            VERTEX_AI_LOCATION=${{ secrets.VERTEX_AI_LOCATION || 'us-central1' }}
+            VERTEX_AI_EMBEDDING_MODEL=${{ secrets.VERTEX_AI_EMBEDDING_MODEL || 'text-embedding-004' }}
+            IMAGE_VISION_PROVIDER=${{ secrets.IMAGE_VISION_PROVIDER || 'tesseract' }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             LLM_PROVIDER=${{ secrets.LLM_PROVIDER || (secrets.GEMINI_API_KEY && 'gemini') || 'ollama' }}
             GEMINI_MODEL=${{ secrets.GEMINI_MODEL || 'gemini-1.5-flash' }}
@@ -183,5 +275,6 @@ jobs:
           echo "=========================================="
           echo "Cloud Run Deployment Succeeded"
           echo "API URL:      ${{ steps.deploy-api.outputs.url }}"
+          echo "Worker URL:   ${{ steps.deploy-worker.outputs.url }}"
           echo "Frontend URL: ${{ steps.deploy-frontend.outputs.url }}"
           echo "=========================================="

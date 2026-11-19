@@ -5,6 +5,7 @@
 SHELL := /bin/bash
 
 COMPOSE := docker compose
+COMPOSE_GCS := docker compose -f docker-compose.yml -f docker-compose.gcs.yml
 COMPOSE_PROD := docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
 # ── Development ──────────────────────────────
@@ -12,6 +13,10 @@ COMPOSE_PROD := docker compose -f docker-compose.yml -f docker-compose.prod.yml
 .PHONY: dev
 dev: ## Start all services with hot reload
 	$(COMPOSE) up -d --build
+
+.PHONY: dev-gcs
+dev-gcs: ## Start all services with Google Cloud Storage ADC mount enabled
+	$(COMPOSE_GCS) up -d --build
 
 .PHONY: down
 down: ## Stop all services
@@ -84,6 +89,24 @@ db-revision: ## Create a new migration (usage: make db-revision MSG="add users t
 .PHONY: seed
 seed: ## Populate with demo notebook + sources
 	$(COMPOSE) exec api python -m app.scripts.seed
+
+.PHONY: migrate-gcs
+migrate-gcs: ## Migrate existing local/MinIO sources to GCS with SHA-256 verification (dry-run by default)
+	cd backend && python -m app.scripts.migrate_storage_to_gcs --dry-run
+
+# ── Rust Data-Plane Accelerator ──────────────
+
+.PHONY: rust-build
+rust-build: ## Build and install opennotebook_core PyO3 extension in release mode
+	cd backend/rust && maturin develop --release --features python
+
+.PHONY: rust-test
+rust-test: ## Run Rust fmt, clippy, and cargo unit tests
+	cd backend/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --locked
+
+.PHONY: benchmark
+benchmark: ## Run Pure-Python vs Rust (opennotebook_core) data-plane benchmark
+	cd backend && python -m app.scripts.benchmark_rust_vs_python
 
 # ── Worker ───────────────────────────────────
 

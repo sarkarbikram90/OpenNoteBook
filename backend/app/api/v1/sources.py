@@ -37,8 +37,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/notebooks/{notebook_id}/sources", tags=["sources"])
 
 
+def _post_to_http_worker(path: str, source_id: uuid.UUID) -> bool:
+    """Trigger the dedicated Cloud Run HTTP worker when ``WORKER_HTTP_URL`` is set."""
+    settings = get_settings()
+    base_url = settings.worker_http_url.strip().rstrip("/")
+    if not base_url:
+        return False
+
+    import httpx
+
+    token = (settings.worker_auth_token or settings.pubsub_verification_token).strip()
+    headers = {"X-Worker-Token": token} if token else {}
+    url = f"{base_url}{path}"
+    try:
+        resp = httpx.post(url, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        logger.info("Dispatched source %s to HTTP worker (%s)", source_id, url)
+        return True
+    except Exception as exc:
+        logger.warning(
+            "HTTP worker dispatch failed for source %s (%s): %s",
+            source_id,
+            url,
+            exc,
+        )
+        return False
+
+
 def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
-    """Dispatch source processing to Celery if available, or fallback to in-process execution."""
+    """Dispatch source processing via Celery, Cloud Run HTTP worker, or in-process fallback."""
     from app.infrastructure.redis.client import is_redis_available
 
     dispatched = False
@@ -50,13 +77,15 @@ def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTask
             logger.info("Dispatched source %s to Celery queue", source_id)
         except Exception as exc:
             logger.warning(
-                "Celery task dispatch failed for source %s (%s). Falling back to in-process background execution.",
+                "Celery task dispatch failed for source %s (%s). Trying next worker backend.",
                 source_id,
                 exc,
             )
 
     if not dispatched:
-        def _in_process_worker():
+        def _http_or_in_process_worker() -> None:
+            if _post_to_http_worker(f"/tasks/process-source/{source_id}", source_id):
+                return
             try:
                 from app.worker.tasks.process_source import execute_process_source
                 execute_process_source(str(source_id))
@@ -69,14 +98,14 @@ def _dispatch_source_task(source_id: uuid.UUID, background_tasks: BackgroundTask
                     pass
 
         if background_tasks is not None:
-            background_tasks.add_task(_in_process_worker)
+            background_tasks.add_task(_http_or_in_process_worker)
         else:
             import threading
-            threading.Thread(target=_in_process_worker, daemon=True).start()
+            threading.Thread(target=_http_or_in_process_worker, daemon=True).start()
 
 
 def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTasks | None = None) -> None:
-    """Dispatch reindex to Celery if available, or fallback to in-process execution."""
+    """Dispatch reindex via Celery, Cloud Run HTTP worker, or in-process fallback."""
     from app.infrastructure.redis.client import is_redis_available
 
     dispatched = False
@@ -88,13 +117,15 @@ def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTas
             logger.info("Dispatched reindex for source %s to Celery", source_id)
         except Exception as exc:
             logger.warning(
-                "Celery reindex dispatch failed for source %s (%s). Falling back to in-process execution.",
+                "Celery reindex dispatch failed for source %s (%s). Trying next worker backend.",
                 source_id,
                 exc,
             )
 
     if not dispatched:
-        def _in_process_reindex():
+        def _http_or_in_process_reindex() -> None:
+            if _post_to_http_worker(f"/tasks/reindex-source/{source_id}", source_id):
+                return
             try:
                 from app.worker.tasks.process_source import execute_reindex_source
                 execute_reindex_source(str(source_id))
@@ -107,10 +138,10 @@ def _dispatch_reindex_task(source_id: uuid.UUID, background_tasks: BackgroundTas
                     pass
 
         if background_tasks is not None:
-            background_tasks.add_task(_in_process_reindex)
+            background_tasks.add_task(_http_or_in_process_reindex)
         else:
             import threading
-            threading.Thread(target=_in_process_reindex, daemon=True).start()
+            threading.Thread(target=_http_or_in_process_reindex, daemon=True).start()
 
 # Supported MIME types for file uploads
 _ALLOWED_MIME_TYPES = {

@@ -131,10 +131,12 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "opennotebook_chunks"
 
-    # ── Celery (Task Queue) ──────────────────────
+    # ── Celery / Cloud Run HTTP Worker ───────────
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
     connector_poll_seconds: int = 60
+    worker_http_url: str = ""
+    worker_auth_token: str = ""
 
     # ── Embedding Model (Local BGE | Vertex AI) ──
     embedding_provider: str = "local"  # "local" | "vertex_ai"

@@ -56,23 +56,38 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("SQLAlchemy instrumentation failed: %s", e)
 
-    # Ensure MinIO bucket and Qdrant collection concurrently (best-effort, non-blocking)
+    # Ensure configured storage and vector store concurrently (best-effort, non-blocking)
     async def _safe_init(fn: Any, name: str) -> None:
         try:
             loop = asyncio.get_running_loop()
-            await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=1.5)
+            await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=2.0)
             logger.info("%s ensured", name)
         except Exception as e:
             logger.warning("%s init skipped/failed (may not be available yet): %s", name, e)
 
     try:
-        from app.infrastructure.minio.client import ensure_bucket
-        from app.infrastructure.qdrant.client import ensure_collection
+        from app.infrastructure.rust_accel import is_rust_available
+        from app.infrastructure.vector_store import ensure_vector_store
 
-        await asyncio.gather(
-            _safe_init(ensure_bucket, "MinIO bucket"),
-            _safe_init(ensure_collection, "Qdrant collection"),
+        logger.info(
+            "Startup acceleration status: rust_opennotebook_core=%s, storage_provider=%s, vector_store_provider=%s",
+            is_rust_available(),
+            settings.storage_provider,
+            settings.vector_store_provider,
         )
+
+        init_tasks = [
+            _safe_init(
+                ensure_vector_store,
+                f"Vector store ({settings.vector_store_provider})",
+            )
+        ]
+        if settings.storage_provider.lower() in ("minio", "s3"):
+            from app.infrastructure.minio.client import ensure_bucket
+
+            init_tasks.append(_safe_init(ensure_bucket, "MinIO bucket"))
+
+        await asyncio.gather(*init_tasks)
     except Exception as e:
         logger.warning("Startup service initialization skipped: %s", e)
 

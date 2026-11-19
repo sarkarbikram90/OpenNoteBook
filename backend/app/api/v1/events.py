@@ -35,9 +35,20 @@ def _verify_pubsub_token(
     expected_token: str,
     query_token: str | None,
     authorization: str | None,
+    *,
+    app_env: str = "development",
 ) -> None:
-    """Validate optional Pub/Sub push verification token in constant time."""
+    """Validate Pub/Sub push verification token in constant time.
+
+    Fails closed in production when ``PUBSUB_VERIFICATION_TOKEN`` is unset so
+    unauthenticated external callers cannot trigger ingestion jobs.
+    """
     if not expected_token:
+        if app_env.lower() in ("production", "prod"):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Pub/Sub webhook disabled: PUBSUB_VERIFICATION_TOKEN is not configured in production",
+            )
         return
 
     candidate = (query_token or "").strip()
@@ -74,6 +85,7 @@ async def handle_gcs_finalize_event(
         settings.pubsub_verification_token.strip(),
         token,
         authorization,
+        app_env=settings.app_env,
     )
 
     try:

@@ -73,7 +73,7 @@ jobs:
 
       - name: Run Pytest
         run: |
-          cd backend && pytest tests/evaluation tests/unit -o addopts="" -q
+          cd backend && pytest tests/evaluation tests/unit tests/integration/test_rag_pipeline.py -o addopts="" -q
 
   frontend:
     name: Frontend CI
