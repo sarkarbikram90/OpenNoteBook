@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from sqlalchemy import select
 
 from app.api.v1.schemas.jobs import (
@@ -56,6 +56,7 @@ async def retry_job(
     job_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> RetryResponse:
     """Retry a failed processing job.
 
@@ -81,8 +82,8 @@ async def retry_job(
     job.retried = True
     await db.flush()
 
-    from app.worker.tasks.process_source import process_source
-    process_source.delay(str(job.source_id))
+    from app.api.v1.sources import _dispatch_source_task
+    _dispatch_source_task(job.source_id, background_tasks)
 
     return RetryResponse(
         job_id=job.id,

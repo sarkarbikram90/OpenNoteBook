@@ -13,6 +13,9 @@ import { ToastContainer } from '@/components/ui/Toast';
 import { LandingPage } from '@/pages/LandingPage';
 import { AuthPage } from '@/pages/AuthPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { ConnectorsPage } from '@/pages/ConnectorsPage';
+import { WorkspacesPage } from '@/pages/WorkspacesPage';
+import { JobsPage } from '@/pages/JobsPage';
 import { NotebookDashboard } from '@/components/notebook/NotebookDashboard';
 import { NotebookWorkspace } from '@/components/notebook/NotebookWorkspace';
 
@@ -21,11 +24,17 @@ type Route =
   | { page: 'auth' }
   | { page: 'notebooks' }
   | { page: 'notebook'; id: string }
+  | { page: 'connectors' }
+  | { page: 'workspaces' }
+  | { page: 'jobs' }
   | { page: 'settings' };
 
 function parseRoute(path: string): Route {
   if (path === '/auth') return { page: 'auth' };
   if (path === '/settings') return { page: 'settings' };
+  if (path === '/connectors') return { page: 'connectors' };
+  if (path === '/workspaces') return { page: 'workspaces' };
+  if (path === '/jobs') return { page: 'jobs' };
   if (path === '/notebooks') return { page: 'notebooks' };
   const nbMatch = path.match(/^\/notebooks\/(.+)/);
   if (nbMatch) return { page: 'notebook', id: nbMatch[1] };
@@ -83,6 +92,9 @@ export function App() {
               onBack={() => navigate('/notebooks')}
             />
           )}
+          {route.page === 'connectors' && <ConnectorsPage />}
+          {route.page === 'workspaces' && <WorkspacesPage />}
+          {route.page === 'jobs' && <JobsPage />}
           {route.page === 'settings' && <SettingsPage />}
         </AppShell>
       )}
@@ -103,6 +115,12 @@ function routeToPath(route: Route): string {
       return '/notebooks';
     case 'notebook':
       return `/notebooks/${route.id}`;
+    case 'connectors':
+      return '/connectors';
+    case 'workspaces':
+      return '/workspaces';
+    case 'jobs':
+      return '/jobs';
     case 'settings':
       return '/settings';
   }

@@ -1,7 +1,16 @@
 /** OpenNotebook — AppShell: top nav, sidebar, toast, command palette. */
 
 import { useState, type ReactNode } from 'react';
-import { BookOpen, Settings, LogOut, Search, Command } from 'lucide-react';
+import {
+  BookOpen,
+  Settings,
+  LogOut,
+  Search,
+  Command,
+  Plug,
+  Users,
+  Activity,
+} from 'lucide-react';
 import { clsx } from 'clsx';
 import { DarkModeToggle } from '@/components/ui/DarkModeToggle';
 import { CommandPalette } from '@/components/command/CommandPalette';
@@ -44,13 +53,34 @@ export function AppShell({ children, onNavigate, currentPath }: AppShellProps) {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto p-2">
-          <div className="mb-2">
+          <div className="mb-2 space-y-0.5">
             <NavItem
               icon={<BookOpen className="h-4 w-4" />}
               label="Notebooks"
               isActive={currentPath === '/notebooks'}
               collapsed={sidebarCollapsed}
               onClick={() => onNavigate('/notebooks')}
+            />
+            <NavItem
+              icon={<Plug className="h-4 w-4" />}
+              label="Connectors"
+              isActive={currentPath === '/connectors'}
+              collapsed={sidebarCollapsed}
+              onClick={() => onNavigate('/connectors')}
+            />
+            <NavItem
+              icon={<Users className="h-4 w-4" />}
+              label="Workspaces"
+              isActive={currentPath === '/workspaces'}
+              collapsed={sidebarCollapsed}
+              onClick={() => onNavigate('/workspaces')}
+            />
+            <NavItem
+              icon={<Activity className="h-4 w-4" />}
+              label="Jobs & DLQ"
+              isActive={currentPath === '/jobs'}
+              collapsed={sidebarCollapsed}
+              onClick={() => onNavigate('/jobs')}
             />
           </div>
 

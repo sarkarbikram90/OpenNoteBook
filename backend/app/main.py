@@ -30,6 +30,7 @@ from app.api.v1.notebooks import router as notebooks_router
 from app.api.v1.search import router as search_router
 from app.api.v1.settings import router as settings_router
 from app.api.v1.sources import router as sources_router
+from app.api.v1.workspaces import router as workspaces_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.logging import init_tracing, setup_logging
@@ -210,6 +211,7 @@ app.include_router(notebooks_router, prefix=API_V1_PREFIX)
 app.include_router(sources_router, prefix=API_V1_PREFIX)
 app.include_router(events_router, prefix=API_V1_PREFIX)
 app.include_router(connectors_router, prefix=API_V1_PREFIX)
+app.include_router(workspaces_router, prefix=API_V1_PREFIX)
 app.include_router(chat_router, prefix=API_V1_PREFIX)
 app.include_router(search_router, prefix=API_V1_PREFIX)
 app.include_router(jobs_router, prefix=API_V1_PREFIX)

@@ -226,3 +226,105 @@ export interface FeedbackResponse {
   rating: FeedbackRating;
   created_at: string;
 }
+
+/** Workspaces & RBAC */
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+export type SensitivityLevel = 'public' | 'internal' | 'confidential' | 'restricted';
+
+export interface Workspace {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  role: WorkspaceRole;
+  enable_pii_redaction: boolean;
+  default_sensitivity: SensitivityLevel;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceCreateRequest {
+  name: string;
+  enable_pii_redaction?: boolean;
+  default_sensitivity?: SensitivityLevel;
+}
+
+export interface WorkspaceUpdateRequest {
+  name?: string;
+  enable_pii_redaction?: boolean;
+  default_sensitivity?: SensitivityLevel;
+}
+
+export interface WorkspaceMember {
+  user_id: string;
+  email: string;
+  role: WorkspaceRole;
+  created_at: string;
+}
+
+/** Enterprise Connectors */
+export type ConnectorType =
+  | 'confluence'
+  | 'sharepoint'
+  | 'salesforce'
+  | 's3'
+  | 'sql'
+  | 'web'
+  | 'fileshare'
+  | 'rest';
+
+export interface Connector {
+  id: string;
+  workspace_id: string;
+  notebook_id: string | null;
+  name: string;
+  connector_type: ConnectorType;
+  schedule_cron: string | null;
+  status: string;
+  last_sync_at: string | null;
+  error_message: string | null;
+}
+
+export interface ConnectorCreateRequest {
+  workspace_id: string;
+  notebook_id?: string | null;
+  name: string;
+  connector_type: ConnectorType;
+  config_json: Record<string, unknown>;
+  schedule_cron?: string | null;
+}
+
+export interface ConnectorTestResponse {
+  success: boolean;
+  message: string;
+}
+
+export interface ConnectorSyncResponse {
+  connector_id: string;
+  documents_synced: number;
+  status: string;
+}
+
+/** Ingestion Jobs / DLQ */
+export interface FailedJob {
+  id: string;
+  source_id: string;
+  task_name: string;
+  error_message: string;
+  traceback: string | null;
+  retry_count: number;
+  retried: boolean;
+  created_at: string;
+}
+
+export interface FailedJobListResponse {
+  jobs: FailedJob[];
+  total: number;
+}
+
+export interface RetryJobResponse {
+  job_id: string;
+  source_id: string;
+  status: string;
+}

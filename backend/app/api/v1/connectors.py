@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -51,6 +51,7 @@ class ConnectorResponse(BaseModel):
     notebook_id: uuid.UUID | None
     name: str
     connector_type: str
+    schedule_cron: str | None = None
     status: str
     last_sync_at: datetime | None
     error_message: str | None
@@ -197,6 +198,7 @@ async def sync_connector(
     connector_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     since: datetime | None = None,
 ) -> ConnectorSyncResponse:
     """Execute connector sync and ingest discovered documents into the Data Lake.
@@ -227,10 +229,10 @@ async def sync_connector(
             detail=f"Unsupported connector type: {connector.connector_type}",
         ) from exc
 
+    from app.api.v1.sources import _dispatch_source_task
     from app.domain.sources.dedup import find_source_by_checksum
     from app.infrastructure.storage.paths import raw_key
     from app.infrastructure.storage.service import StorageService, get_storage_service
-    from app.worker.tasks.process_source import process_source
 
     storage = get_storage_service()
     docs = conn.sync(since=since)
@@ -286,8 +288,8 @@ async def sync_connector(
         db.add(source)
         await db.flush()
 
-        # Queue processing task
-        process_source.delay(str(source_id))
+        # Queue processing task via Celery / Cloud Run HTTP worker / fallback
+        _dispatch_source_task(source_id, background_tasks)
         synced += 1
 
     connector.last_sync_at = datetime.now(UTC)
@@ -308,4 +310,35 @@ async def sync_connector(
         connector_id=connector.id,
         documents_synced=synced,
         status="ACTIVE",
+    )
+
+
+@router.delete(
+    "/{connector_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an enterprise connector",
+)
+async def delete_connector(
+    connector_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    """Delete a configured enterprise connector."""
+    result = await db.execute(select(ConnectorConfig).where(ConnectorConfig.id == connector_id))
+    connector = result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    await _verify_workspace_permission(connector.workspace_id, user.id, db)
+
+    await db.delete(connector)
+    await db.flush()
+
+    await record_audit_event(
+        db=db,
+        action="connector.delete",
+        resource_type="connector",
+        resource_id=str(connector_id),
+        user_id=user.id,
+        details={"name": connector.name, "type": connector.connector_type},
     )
